@@ -3,16 +3,10 @@ import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 // 环境动效配置。时间单位是秒，距离是舞台像素，强度 0 为关闭、1 为完全显现。
 const ENVIRONMENT = {
   corridor: {
-    seconds: 8,           // 从第一道拱门扫到最后一道拱门的周期
-    color: '#a8f9db',     // 光晕和余光的青绿色
-    coreColor: '#f1fff8', // 光头的亮青白色
-    darkLevel: 0.16,      // 流光经过后，原描边保留的亮度
-    tailLength: 154,      // 余光沿拱门轮廓衰减的距离
-    archGap: 12,          // 两道拱门之间换接的距离，空隙里不画光
-    lineWidth: 3.2,       // 最亮的一段描边的粗细
-    glowWidth: 16,        // 光晕的宽度
-    glowStrength: 0.34,   // 光晕的强度
-    headRadius: 12,       // 光头柔光的半径
+    seconds: 16,         // 从第一道拱门扫到最后一道拱门的周期
+    color: '#ffffff',    // 纯白色流光
+    tailLength: 76,      // 拖尾沿拱门轮廓逐渐淡去的距离
+    archGap: 12,         // 两道拱门之间换接的距离，空隙里不画光
   },
   mirror: {
     interval: 6.8,        // 两次扫光开始之间的间隔
@@ -57,32 +51,25 @@ function svgElement(name, attributes) {
 }
 
 function makeCorridorSweep() {
-  const { seconds, color, coreColor, darkLevel, tailLength, archGap,
-    lineWidth, glowWidth, glowStrength, headRadius } = ENVIRONMENT.corridor;
+  const { seconds, color, tailLength, archGap } = ENVIRONMENT.corridor;
   const arches = document.querySelector('#cloister-arches');
-  const sweep = svgElement('g', { id: 'corridor-sweep', fill: 'none', visibility: 'hidden' });
-  const gradient = svgElement('radialGradient', { id: 'corridor-head-light' });
-  for (const [offset, stopColor, opacity] of [[0, coreColor, 1], [.21, color, .85], [.5, color, .25], [1, color, 0]]) {
-    gradient.append(svgElement('stop', { offset, 'stop-color': stopColor, 'stop-opacity': opacity }));
-  }
-  arches.ownerSVGElement.querySelector('defs').append(gradient);
+  const sweep = svgElement('g', {
+    id: 'corridor-sweep', fill: 'none', stroke: color,
+    'stroke-width': arches.getAttribute('stroke-width'), visibility: 'hidden',
+  });
 
-  // Draw progressively shorter and brighter strokes behind the head of the sweep.
+  // Overlapping thin strokes make the trailing end fade back into the original line.
   const bands = [
-    { fraction: 1, width: lineWidth, stroke: color, opacity: .19 },
-    { fraction: .63, width: glowWidth, stroke: color, opacity: glowStrength, blur: true },
-    { fraction: .52, width: lineWidth, stroke: color, opacity: .55 },
-    { fraction: .19, width: lineWidth, stroke: coreColor, opacity: .97 },
+    { fraction: 1, opacity: .12 },
+    { fraction: .74, opacity: .17 },
+    { fraction: .5, opacity: .28 },
+    { fraction: .25, opacity: .98 },
   ];
   const outlines = bands.map(band => {
-    const attributes = { stroke: band.stroke, 'stroke-width': band.width, opacity: band.opacity };
-    if (band.blur) attributes.filter = 'url(#arch-glow)';
-    const layer = svgElement('g', attributes);
+    const layer = svgElement('g', { opacity: band.opacity });
     sweep.append(layer);
     return layer;
   });
-  const headLight = svgElement('circle', { r: headRadius, fill: 'url(#corridor-head-light)' });
-  sweep.append(headLight);
   arches.after(sweep);
 
   let routeLength = 0;
@@ -95,19 +82,16 @@ function makeCorridorSweep() {
       layer.append(stroke);
       return stroke;
     });
-    return { arch, start, length, strokes };
+    return { start, length, strokes };
   });
-  // Include the tail's exit so the next lap starts with all of the arches dark.
+  // Include the tail's exit so the next lap starts with only the original outlines.
   const travel = routeLength - archGap + tailLength;
 
   return {
     update(time) {
       const cursor = travel * (time % seconds) / seconds;
-      arches.style.opacity = darkLevel;
-      let headPoint;
-      for (const { arch, start, length, strokes } of route) {
+      for (const { start, length, strokes } of route) {
         const local = cursor - start;
-        if (local >= 0 && local <= length) headPoint = arch.getPointAtLength(local);
         for (const [index, stroke] of strokes.entries()) {
           const from = Math.max(0, local - tailLength * bands[index].fraction);
           const to = Math.min(length, local);
@@ -119,17 +103,9 @@ function makeCorridorSweep() {
           }
         }
       }
-      if (headPoint) {
-        headLight.setAttribute('cx', headPoint.x);
-        headLight.setAttribute('cy', headPoint.y);
-        headLight.removeAttribute('visibility');
-      } else {
-        headLight.setAttribute('visibility', 'hidden');
-      }
       if (sweep.hasAttribute('visibility')) sweep.removeAttribute('visibility');
     },
     reset() {
-      arches.style.removeProperty('opacity');
       sweep.setAttribute('visibility', 'hidden');
     },
   };
