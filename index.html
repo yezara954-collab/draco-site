@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="Draco Malfoy 同人二创首页">
+    <title>Draco Malfoy</title>
+  </head>
+  <body>
+    <main class="viewport">
+      <section id="stage" class="stage" aria-label="德拉科·马尔福与厄里斯魔镜">
+        <div id="night" class="night" aria-hidden="true"></div>
+        <svg class="linework" viewBox="0 0 1600 1000" aria-hidden="true">
+          <defs>
+            <linearGradient id="arch-light" x2="0" y2="1">
+              <stop stop-color="#a2c7bd" stop-opacity=".95"/>
+              <stop offset=".48" stop-color="#8eb5a9" stop-opacity=".87"/>
+              <stop offset="1" stop-color="#88aa9e" stop-opacity=".68"/>
+            </linearGradient>
+            <linearGradient id="floor-light">
+              <stop stop-color="#8a9b8f" stop-opacity="0"/>
+              <stop offset=".23" stop-color="#8a9b8f" stop-opacity=".56"/>
+              <stop offset=".83" stop-color="#8a9b8f" stop-opacity=".63"/>
+              <stop offset="1" stop-color="#8a9b8f" stop-opacity="0"/>
+            </linearGradient>
+            <filter id="arch-glow" x="-15%" y="-12%" width="130%" height="125%">
+              <feGaussianBlur stdDeviation="3.1" result="soft-glow"/>
+              <feComponentTransfer in="soft-glow" result="glow"><feFuncA type="linear" slope="2.4"/></feComponentTransfer>
+              <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+          <g id="night-stars" fill="#a1b7a4"></g>
+          <g id="cloister-arches" fill="none" stroke="url(#arch-light)" stroke-width="1.45" filter="url(#arch-glow)">
+            <path id="arch-01" opacity=".79" d="M100 745V630Q100 573 180 516Q260 573 260 630V745"/>
+            <path id="arch-02" d="M278 745V630Q278 573 358 516Q438 573 438 630V745"/>
+            <path id="arch-03" d="M456 745V630Q456 573 536 516Q616 573 616 630V745"/>
+            <path id="arch-04" d="M634 745V630Q634 573 714 516Q794 573 794 630V745"/>
+            <path id="arch-05" d="M812 745V630Q812 573 892 516Q972 573 972 630V745"/>
+            <path id="arch-06" opacity=".74" d="M990 745V630Q990 573 1070 516Q1150 573 1150 630V745"/>
+            <path id="arch-07" opacity=".67" d="M1168 745V630Q1168 573 1248 516Q1328 573 1328 630V745"/>
+            <path id="arch-08" opacity=".32" d="M1346 745V630Q1346 573 1426 516Q1506 573 1506 630V745"/>
+          </g>
+          <g id="ground-plane" fill="none" stroke="url(#floor-light)">
+            <path d="M81 744.5H1524M435 779.5H1536M514 792.5H1512" stroke-width="1.15"/>
+            <path d="M657 776L636 793M955 778L958 793M1229 779L1254 793M1437 779L1470 794"/>
+          </g>
+          <g id="crane-trail" fill="none" stroke="#82a58d" stroke-width="1.1">
+            <path d="M190 354C231 359 253 337 289 324S345 313 375 312" opacity=".49"/>
+            <path d="M228 364C272 361 295 339 329 334" opacity=".34"/>
+            <g fill="#aac1a7" stroke="none" opacity=".63"><circle cx="253" cy="344" r="1.1"/><circle cx="284" cy="321" r="1"/><circle cx="341" cy="312" r="1.4"/><circle cx="369" cy="311" r="1.25"/></g>
+          </g>
+        </svg>
+        <div id="art" class="art"></div>
+        <svg class="viewfinder" viewBox="0 0 1600 1000" fill="none" aria-hidden="true">
+          <g id="corner-marks" stroke="#5f7465" stroke-width="1.1">
+            <path d="M55 91V56H90M1510 56H1545V91M55 910V945H90M1510 945H1545V910" opacity=".54"/>
+            <path d="M67 111V68H111M1489 68H1533V111M67 889V933H111M1489 933H1533V889" opacity=".33"/>
+          </g>
+          <g id="cross-stars" stroke="#91a68a" stroke-width="1.15">
+            <path d="M103 190H121M112 181V199M378 116.5H394M386 109V124M319 291H331M325 285V297M1449 179H1465M1457 171V187" opacity=".6"/>
+            <path d="m517 218 3 5-3 5-3-5zM314 652l3 5-3 5-3-5zM1093 709l3 5-3 5-3-5z" opacity=".51"/>
+          </g>
+        </svg>
+        <h1 class="title" aria-label="Draco Malfoy">
+          <span class="title-word" aria-hidden="true" data-left="347" data-right="738">Draco</span>
+          <span class="title-word" aria-hidden="true" data-left="801" data-right="1109">Malf</span>
+          <svg id="green-apple" class="apple" viewBox="0 0 72 83" aria-hidden="true">
+            <defs>
+              <clipPath id="apple-photo-silhouette">
+                <path d="M30.69 14.89L29.93 15.14L29.55 15.90L30.82 18.68L30.56 19.44L27.91 19.44L22.72 20.70L18.80 22.47L13.11 25.89L11.60 27.66L11.47 28.16L9.83 29.68L7.68 32.97L7.17 33.34L6.79 34.23L5.53 35.62L4.26 39.03L3.00 46.37L3.13 51.30L4.01 56.86L5.91 63.69L6.92 65.08L8.56 68.49L10.97 71.40L11.85 71.91L15.14 74.94L17.54 75.83L20.20 77.22L23.61 77.98L24.24 78.36L25.76 78.48L26.01 78.74L28.29 78.99L29.93 79.49L34.36 79.87L36.89 79.49L37.77 79.11L40.43 79.49L41.94 79.24L42.20 78.99L44.60 78.99L48.01 77.85L48.26 77.47L52.94 76.08L56.10 74.06L56.36 73.55L57.24 73.30L59.64 71.40L61.67 69.00L63.06 67.86L65.71 64.20L67.36 59.26L68.24 54.21L68.24 52.69L68.62 51.55L68.49 50.54L68.87 46.87L68.24 42.45L68.24 40.68L66.72 35.75L64.70 31.20L62.30 28.92L62.17 28.29L61.54 27.53L58.00 24.75L55.22 23.23L50.03 21.21L43.59 20.20L40.05 20.07L37.77 19.44L33.47 19.18L33.09 18.05L32.84 15.01L32.21 14.76L31.83 15.01Z"/>
+              </clipPath>
+            </defs>
+            <image href="./src/assets/apple-draco.jpg" x="-10.5287" y="0.7241"
+              width="93.0575" height="93.0575"
+              clip-path="url(#apple-photo-silhouette)"/>
+          </svg>
+          <span class="title-word" aria-hidden="true" data-left="1178" data-right="1254">y</span>
+        </h1>
+      </section>
+      <p id="render-error" class="render-error" hidden>海报加载失败，请刷新页面重试。</p>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

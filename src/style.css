@@ -1,0 +1,50 @@
+:root { color-scheme: dark; background: #000; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.viewport { position: fixed; inset: 0; overflow: hidden; }
+.stage {
+  position: absolute;
+  left: calc(50% - 800px);
+  top: calc(50% - 500px);
+  width: 1600px;
+  height: 1000px;
+  transform-origin: center;
+  visibility: hidden;
+  overflow: hidden;
+  isolation: isolate;
+  background: #000;
+}
+.stage.ready { visibility: visible; }
+.night, .linework, .art, .viewfinder, .title {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.night {
+  background:
+    radial-gradient(ellipse 260px 166px at 25.4% 29.7%, #151e18 0%, #0d1510a6 45%, transparent 94%),
+    radial-gradient(ellipse 653px 470px at 50.4% 42.4%, #23362b 0%, #18251e 33%, #090f0b 68%, transparent 100%);
+}
+.linework, .viewfinder, .title { pointer-events: none; }
+.art canvas { display: block; width: 100%; height: 100%; }
+.title {
+  margin: 0;
+  color: #ede8d9;
+  font: 400 155px/1 "Bodoni Moda", Didot, Georgia, serif;
+  font-synthesis: none;
+}
+.title-word {
+  position: absolute;
+  white-space: nowrap;
+  transform-origin: top left;
+}
+.apple { position: absolute; width: 68px; height: 79px; left: 1105px; top: 832px; overflow: visible; }
+.render-error {
+  position: absolute;
+  inset: 50% 1rem auto;
+  margin: 0;
+  color: #ede8d9;
+  text-align: center;
+  font: 16px system-ui, sans-serif;
+}
