@@ -1,8 +1,9 @@
-import { Application, Assets, Container, Graphics, RendererType, Sprite } from 'pixi.js';
+import { Application, Assets, Container, RendererType, Sprite } from 'pixi.js';
 import { gsap } from 'gsap';
 import '@fontsource/bodoni-moda/latin-400.css';
 import './style.css';
 import placements from './placements.json';
+import { makeCraneRig, makeMirrorLighting, makeReflection, startEnvironment } from './environment.js';
 
 const WIDTH = 1600;
 const HEIGHT = 1000;
@@ -81,9 +82,9 @@ function alphaHitArea(source) {
   const mask = new Uint8Array(width * height);
   for (let pixel = 0; pixel < mask.length; pixel++) mask[pixel] = data[pixel * 4 + 3];
   return {
-    contains(x, y) {
+    contains(x, y, threshold = 0) {
       if (x < 0 || y < 0 || x >= width || y >= height) return false;
-      return mask[Math.floor(y) * width + Math.floor(x)] > 0;
+      return mask[Math.floor(y) * width + Math.floor(x)] > threshold;
     },
   };
 }
@@ -112,13 +113,6 @@ function makeSprite(label, texture) {
   return sprite;
 }
 
-function reflection(label, points) {
-  const layer = new Graphics({ label });
-  layer.poly(points).fill({ color: 0xf1f0e4, alpha: .9 });
-  layer.eventMode = 'none';
-  return layer;
-}
-
 async function renderPoster() {
   const app = new Application();
   await app.init({
@@ -137,22 +131,32 @@ async function renderPoster() {
   const sprites = Object.fromEntries(entries);
   // The crouching pose is available as its own layer. The reference shows only the raised pose.
   sprites['ferret-low'].visible = false;
+  const glass = sprites['mirror-glass'];
+  const lighting = makeMirrorLighting(glass, sprites.draco);
+  const reflections = [
+    makeReflection('mirror-reflection-left', [675, 369, 747, 410, 732, 444, 664, 452]),
+    makeReflection('mirror-reflection-right', [852, 474, 925, 456, 918, 516, 848, 530]),
+  ];
+  const crane = makeCraneRig(sprites['paper-crane']);
   layers.addChild(
     sprites['oak-tree'],
-    sprites['mirror-glass'],
-    reflection('mirror-reflection-left', [675, 369, 747, 410, 732, 444, 664, 452]),
-    reflection('mirror-reflection-right', [852, 474, 925, 456, 918, 516, 848, 530]),
+    glass,
+    lighting.stencil,
+    lighting.sweep,
+    ...reflections,
     sprites['mirror-frame'],
     sprites['oak-overhang'],
     sprites.draco,
+    lighting.bounce,
     sprites['ferret-low'],
     sprites['ferret-raised'],
-    sprites['paper-crane'],
+    crane,
   );
 
   app.render();
   await typesetTitle();
   stage.classList.add('ready');
+  startEnvironment(app, { stageWidth: WIDTH, glass, lighting, reflections, crane });
 }
 
 scatterStars();

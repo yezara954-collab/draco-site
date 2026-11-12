@@ -1,4 +1,4 @@
-# Draco Malfoy · 静态海报首页
+# Draco Malfoy · 海报首页
 
 ## 本地预览
 
@@ -21,9 +21,9 @@ npm run dev
 
 ## 舞台和图层
 
-舞台坐标为 1600 × 1000，GSAP 只设置等比缩放。页面只渲染静态画面。深色背景、星点、八道独立 SVG 拱门、地面线、纸鹤拖尾、四角标记、十字星、标题和 SVG 青苹果分别可以编辑。
+舞台坐标为 1600 × 1000，GSAP 只设置等比缩放。深色背景、星点、八道独立 SVG 拱门、地面线、纸鹤拖尾、四角标记、十字星、标题和 SVG 青苹果分别可以编辑。
 
-PixiJS 优先使用 WebGL。浏览器缺少 WebGL 时，静态版本由 PixiJS Canvas 渲染。贴图和镜面光片按以下顺序从底到顶叠放。
+PixiJS 优先使用 WebGL。浏览器缺少 WebGL 时，页面由 PixiJS Canvas 渲染。贴图和镜面光片按以下顺序从底到顶叠放。
 
 1. `oak-tree`
 2. `mirror-glass`
@@ -35,3 +35,8 @@ PixiJS 优先使用 WebGL。浏览器缺少 WebGL 时，静态版本由 PixiJS C
 8. `paper-crane`（从合成参考图单独提取）
 
 贴图位置和显示尺寸记录在 `src/placements.json`。PNG 保留透明度，德拉科立绘已去绿幕，树与垂枝已清理浅色底雾。点击透过透明区域落到其后方的可见贴图。命中时从 `#art` 派发 `poster:pick`，图层名在 `event.detail.layer`。
+
+
+## 环境动效
+
+回廊流光、镜面扫光、纸鹤漂浮和星点闪烁都在 `src/environment.js`。文件顶部的 `ENVIRONMENT` 配置区有中文注释，可调节速度、幅度、强度和颜色。切换标签页时暂停，返回后继续。系统开启「减少动态效果」时显示静态画面。
