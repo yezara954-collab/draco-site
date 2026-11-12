@@ -156,7 +156,7 @@ async function renderPoster() {
   app.render();
   await typesetTitle();
   stage.classList.add('ready');
-  startEnvironment(app, { stageWidth: WIDTH, glass, lighting, reflections, crane });
+  startEnvironment(app, { glass, lighting, reflections, crane });
 }
 
 scatterStars();

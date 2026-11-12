@@ -3,16 +3,16 @@ import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 // 环境动效配置。时间单位是秒，距离是舞台像素，强度 0 为关闭、1 为完全显现。
 const ENVIRONMENT = {
   corridor: {
-    seconds: 8,           // 整排由亮转暗、再回到亮的周期，也是扫光周期
-    color: '#caffeb',     // 光晕和流光的青绿色
-    coreColor: '#ebfff6', // 最亮时描边中心的颜色
-    darkLevel: 0.12,      // 最暗时原描边保留的亮度
-    glowPeak: 0.96,       // 整排点亮时的最大光晕强度
-    strength: 0.95,       // 流光最亮处的强度
-    width: 480,           // 光带宽度，越大，经过后暗下来的时间越长
-    lineWidth: 2.6,       // 流光和高光描边的粗细
-    glowWidth: 9,         // 描边外侧光晕的宽度
-    glowStrength: 0.42,   // 描边外侧光晕的强度
+    seconds: 8,           // 从第一道拱门扫到最后一道拱门的周期
+    color: '#a8f9db',     // 光晕和余光的青绿色
+    coreColor: '#f1fff8', // 光头的亮青白色
+    darkLevel: 0.16,      // 流光经过后，原描边保留的亮度
+    tailLength: 154,      // 余光沿拱门轮廓衰减的距离
+    archGap: 12,          // 两道拱门之间换接的距离，空隙里不画光
+    lineWidth: 3.2,       // 最亮的一段描边的粗细
+    glowWidth: 16,        // 光晕的宽度
+    glowStrength: 0.34,   // 光晕的强度
+    headRadius: 12,       // 光头柔光的半径
   },
   mirror: {
     interval: 6.8,        // 两次扫光开始之间的间隔
@@ -56,57 +56,80 @@ function svgElement(name, attributes) {
   return element;
 }
 
-function makeCorridorSweep(stageWidth) {
-  const { seconds, color, coreColor, darkLevel, glowPeak, strength, width,
-    lineWidth, glowWidth, glowStrength } = ENVIRONMENT.corridor;
+function makeCorridorSweep() {
+  const { seconds, color, coreColor, darkLevel, tailLength, archGap,
+    lineWidth, glowWidth, glowStrength, headRadius } = ENVIRONMENT.corridor;
   const arches = document.querySelector('#cloister-arches');
-  const gradient = svgElement('linearGradient', {
-    id: 'corridor-sweep-gradient', gradientUnits: 'userSpaceOnUse',
-    x1: 0, y1: 0, x2: width, y2: 0,
-  });
-  // The long, dim end of the gradient trails behind the moving highlight.
-  for (const [offset, opacity] of [[0, 0], [.22, .11], [.46, .4], [.68, .9], [.77, 1], [.88, .54], [1, 0]]) {
-    gradient.append(svgElement('stop', { offset, 'stop-color': color, 'stop-opacity': opacity * strength }));
+  const sweep = svgElement('g', { id: 'corridor-sweep', fill: 'none', visibility: 'hidden' });
+  const gradient = svgElement('radialGradient', { id: 'corridor-head-light' });
+  for (const [offset, stopColor, opacity] of [[0, coreColor, 1], [.21, color, .85], [.5, color, .25], [1, color, 0]]) {
+    gradient.append(svgElement('stop', { offset, 'stop-color': stopColor, 'stop-opacity': opacity }));
   }
   arches.ownerSVGElement.querySelector('defs').append(gradient);
 
-  const sweep = svgElement('g', {
-    id: 'corridor-sweep', fill: 'none', stroke: 'url(#corridor-sweep-gradient)',
-    'stroke-width': lineWidth, visibility: 'hidden',
+  // Draw progressively shorter and brighter strokes behind the head of the sweep.
+  const bands = [
+    { fraction: 1, width: lineWidth, stroke: color, opacity: .19 },
+    { fraction: .63, width: glowWidth, stroke: color, opacity: glowStrength, blur: true },
+    { fraction: .52, width: lineWidth, stroke: color, opacity: .55 },
+    { fraction: .19, width: lineWidth, stroke: coreColor, opacity: .97 },
+  ];
+  const outlines = bands.map(band => {
+    const attributes = { stroke: band.stroke, 'stroke-width': band.width, opacity: band.opacity };
+    if (band.blur) attributes.filter = 'url(#arch-glow)';
+    const layer = svgElement('g', attributes);
+    sweep.append(layer);
+    return layer;
   });
-  const glow = svgElement('g', {
-    id: 'corridor-glow', fill: 'none', visibility: 'hidden',
+  const headLight = svgElement('circle', { r: headRadius, fill: 'url(#corridor-head-light)' });
+  sweep.append(headLight);
+  arches.after(sweep);
+
+  let routeLength = 0;
+  const route = [...arches.children].map(arch => {
+    const length = arch.getTotalLength();
+    const start = routeLength;
+    routeLength += length + archGap;
+    const strokes = outlines.map(layer => {
+      const stroke = svgElement('path', { d: arch.getAttribute('d'), visibility: 'hidden' });
+      layer.append(stroke);
+      return stroke;
+    });
+    return { arch, start, length, strokes };
   });
-  const halo = svgElement('g', {
-    stroke: color, 'stroke-width': glowWidth, opacity: glowStrength, filter: 'url(#arch-glow)',
-  });
-  const core = svgElement('g', { stroke: coreColor, 'stroke-width': lineWidth });
-  glow.append(halo, core);
-  for (const arch of arches.children) {
-    const href = `#${arch.id}`;
-    halo.append(svgElement('use', { href }));
-    core.append(svgElement('use', { href }));
-    sweep.append(svgElement('use', { href }));
-  }
-  arches.after(glow, sweep);
+  // Include the tail's exit so the next lap starts with all of the arches dark.
+  const travel = routeLength - archGap + tailLength;
 
   return {
     update(time) {
-      const progress = (time % seconds) / seconds;
-      const brightness = ((1 + Math.cos(TURN * progress)) / 2) ** 1.35;
-      const x = -width + (stageWidth + width) * progress;
-      arches.style.opacity = (darkLevel + (1 - darkLevel) * brightness).toFixed(3);
-      glow.style.opacity = (glowPeak * brightness).toFixed(3);
-      sweep.style.opacity = (brightness ** .5).toFixed(3);
-      gradient.setAttribute('gradientTransform', `translate(${x} 0)`);
-      if (sweep.hasAttribute('visibility')) {
-        glow.removeAttribute('visibility');
-        sweep.removeAttribute('visibility');
+      const cursor = travel * (time % seconds) / seconds;
+      arches.style.opacity = darkLevel;
+      let headPoint;
+      for (const { arch, start, length, strokes } of route) {
+        const local = cursor - start;
+        if (local >= 0 && local <= length) headPoint = arch.getPointAtLength(local);
+        for (const [index, stroke] of strokes.entries()) {
+          const from = Math.max(0, local - tailLength * bands[index].fraction);
+          const to = Math.min(length, local);
+          if (to <= from) {
+            stroke.setAttribute('visibility', 'hidden');
+          } else {
+            stroke.setAttribute('stroke-dasharray', `0 ${from} ${to - from} ${length}`);
+            stroke.removeAttribute('visibility');
+          }
+        }
       }
+      if (headPoint) {
+        headLight.setAttribute('cx', headPoint.x);
+        headLight.setAttribute('cy', headPoint.y);
+        headLight.removeAttribute('visibility');
+      } else {
+        headLight.setAttribute('visibility', 'hidden');
+      }
+      if (sweep.hasAttribute('visibility')) sweep.removeAttribute('visibility');
     },
     reset() {
       arches.style.removeProperty('opacity');
-      glow.setAttribute('visibility', 'hidden');
       sweep.setAttribute('visibility', 'hidden');
     },
   };
@@ -200,8 +223,8 @@ function makeTwinkles() {
   }));
 }
 
-export function startEnvironment(app, { stageWidth, glass, lighting, reflections, crane }) {
-  const corridor = makeCorridorSweep(stageWidth);
+export function startEnvironment(app, { glass, lighting, reflections, crane }) {
+  const corridor = makeCorridorSweep();
   const stars = makeTwinkles();
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
   const mirror = ENVIRONMENT.mirror;
