@@ -3,13 +3,16 @@ import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 // 环境动效配置。时间单位是秒，距离是舞台像素，强度 0 为关闭、1 为完全显现。
 const ENVIRONMENT = {
   corridor: {
-    seconds: 8,            // 每次从左到右扫过的时间
-    color: '#c8f4de',     // 回廊被点亮时的浅青绿色
-    strength: 0.64,       // 光带最亮处的强度
+    seconds: 8,           // 整排由亮转暗、再回到亮的周期，也是扫光周期
+    color: '#caffeb',     // 光晕和流光的青绿色
+    coreColor: '#ebfff6', // 最亮时描边中心的颜色
+    darkLevel: 0.12,      // 最暗时原描边保留的亮度
+    glowPeak: 0.96,       // 整排点亮时的最大光晕强度
+    strength: 0.95,       // 流光最亮处的强度
     width: 480,           // 光带宽度，越大，经过后暗下来的时间越长
-    lineWidth: 1.5,       // 流光描边粗细
-    glowWidth: 5,         // 描边外侧柔光的宽度
-    glowStrength: 0.21,   // 描边外侧柔光的强度
+    lineWidth: 2.6,       // 流光和高光描边的粗细
+    glowWidth: 9,         // 描边外侧光晕的宽度
+    glowStrength: 0.42,   // 描边外侧光晕的强度
   },
   mirror: {
     interval: 6.8,        // 两次扫光开始之间的间隔
@@ -26,17 +29,22 @@ const ENVIRONMENT = {
     reflectionBase: 0.9,  // 白色光片的静态不透明度
   },
   crane: {
-    seconds: 5,           // 纸鹤上下往返一次的时间
-    height: 6,            // 向上或向下的最大位移
-    tilt: 1.45,           // 向左右摆动的最大角度
+    seconds: 4.8,         // 纸鹤上下往返一次的时间
+    height: 22,           // 向上或向下的最大位移
+    drift: 8,             // 同时向左或向右轻飘的最大位移
+    tilt: 5,              // 向左右摆动的最大角度
   },
   stars: {
-    minSeconds: 3.9,      // 最快的星星闪烁周期
-    maxSeconds: 9.8,      // 最慢的星星闪烁周期
-    dotStrength: 0.64,    // 小星点的明暗变化幅度
-    crossStrength: 0.48,  // 十字星和菱形星的明暗变化幅度
+    minSeconds: 2.5,      // 最快的星星闪烁周期
+    maxSeconds: 8.9,      // 最慢的星星闪烁周期
+    darkLevel: 0.025,     // 暗下去时几乎看不见
+    dotPeak: 0.94,       // 小星点的最高亮度
+    crossPeak: 1,        // 十字星和菱形星的最高亮度
+    peakSharpness: 2.8,  // 数值越大，星星停留在高亮的时间越短
+    dotGrowth: 0.45,     // 点亮时星点半径最多增加的像素
     dotColor: '#a1b7a4',  // 小星点颜色
     crossColor: '#91a68a', // 十字星和菱形星颜色
+    flashColor: '#e8fff3', // 闪烁时的浅青白色
   },
 };
 
@@ -49,7 +57,8 @@ function svgElement(name, attributes) {
 }
 
 function makeCorridorSweep(stageWidth) {
-  const { seconds, color, strength, width, lineWidth, glowWidth, glowStrength } = ENVIRONMENT.corridor;
+  const { seconds, color, coreColor, darkLevel, glowPeak, strength, width,
+    lineWidth, glowWidth, glowStrength } = ENVIRONMENT.corridor;
   const arches = document.querySelector('#cloister-arches');
   const gradient = svgElement('linearGradient', {
     id: 'corridor-sweep-gradient', gradientUnits: 'userSpaceOnUse',
@@ -65,22 +74,39 @@ function makeCorridorSweep(stageWidth) {
     id: 'corridor-sweep', fill: 'none', stroke: 'url(#corridor-sweep-gradient)',
     'stroke-width': lineWidth, visibility: 'hidden',
   });
-  const halo = svgElement('g', { 'stroke-width': glowWidth, opacity: glowStrength });
-  sweep.append(halo);
+  const glow = svgElement('g', {
+    id: 'corridor-glow', fill: 'none', visibility: 'hidden',
+  });
+  const halo = svgElement('g', {
+    stroke: color, 'stroke-width': glowWidth, opacity: glowStrength, filter: 'url(#arch-glow)',
+  });
+  const core = svgElement('g', { stroke: coreColor, 'stroke-width': lineWidth });
+  glow.append(halo, core);
   for (const arch of arches.children) {
     const href = `#${arch.id}`;
     halo.append(svgElement('use', { href }));
+    core.append(svgElement('use', { href }));
     sweep.append(svgElement('use', { href }));
   }
-  arches.after(sweep);
+  arches.after(glow, sweep);
 
   return {
     update(time) {
-      const x = -width + (stageWidth + width) * (time % seconds) / seconds;
+      const progress = (time % seconds) / seconds;
+      const brightness = ((1 + Math.cos(TURN * progress)) / 2) ** 1.35;
+      const x = -width + (stageWidth + width) * progress;
+      arches.style.opacity = (darkLevel + (1 - darkLevel) * brightness).toFixed(3);
+      glow.style.opacity = (glowPeak * brightness).toFixed(3);
+      sweep.style.opacity = (brightness ** .5).toFixed(3);
       gradient.setAttribute('gradientTransform', `translate(${x} 0)`);
-      if (sweep.hasAttribute('visibility')) sweep.removeAttribute('visibility');
+      if (sweep.hasAttribute('visibility')) {
+        glow.removeAttribute('visibility');
+        sweep.removeAttribute('visibility');
+      }
     },
     reset() {
+      arches.style.removeProperty('opacity');
+      glow.setAttribute('visibility', 'hidden');
       sweep.setAttribute('visibility', 'hidden');
     },
   };
@@ -159,15 +185,16 @@ export function makeCraneRig(sprite) {
 }
 
 function makeTwinkles() {
-  const { minSeconds, maxSeconds, dotStrength, crossStrength, dotColor, crossColor } = ENVIRONMENT.stars;
+  const { minSeconds, maxSeconds, dotPeak, crossPeak, dotColor, crossColor } = ENVIRONMENT.stars;
   const dots = document.querySelector('#night-stars');
   const crosses = document.querySelector('#cross-stars');
   dots.setAttribute('fill', dotColor);
   crosses.setAttribute('stroke', crossColor);
   return [...dots.children, ...crosses.children].map((element, index) => ({
     element,
-    opacity: Number(element.getAttribute('opacity')),
-    strength: element.parentNode === dots ? dotStrength : crossStrength,
+    radius: Number(element.getAttribute('r')),
+    colorProperty: element.parentNode === dots ? 'fill' : 'stroke',
+    peak: element.parentNode === dots ? dotPeak : crossPeak,
     period: minSeconds + (maxSeconds - minSeconds) * ((index * 0.61803399) % 1),
     phase: TURN * ((index * 0.41421356) % 1),
   }));
@@ -179,6 +206,7 @@ export function startEnvironment(app, { stageWidth, glass, lighting, reflections
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
   const mirror = ENVIRONMENT.mirror;
   const { sweep, beam, bounce } = lighting;
+  const craneRestX = crane.x;
   const craneRestY = crane.y;
   const beamReach = mirror.width / 2 / Math.cos(beam.rotation)
     + Math.abs(Math.tan(beam.rotation)) * glass.height / 2 + 2;
@@ -211,13 +239,20 @@ export function startEnvironment(app, { stageWidth, glass, lighting, reflections
     corridor.update(elapsed);
     updateMirror(elapsed);
     const cranePhase = TURN * elapsed / ENVIRONMENT.crane.seconds;
+    crane.x = craneRestX + ENVIRONMENT.crane.drift * Math.sin(cranePhase / 2);
     crane.y = craneRestY + ENVIRONMENT.crane.height * Math.sin(cranePhase);
     crane.angle = ENVIRONMENT.crane.tilt * Math.sin(cranePhase - Math.PI / 4);
 
     if (elapsed - previousStarUpdate >= 1 / 30) {
-      for (const { element, opacity, strength, period, phase } of stars) {
-        const twinkle = (1 + Math.sin(TURN * elapsed / period + phase)) / 2;
-        element.style.opacity = (opacity * (1 - strength + strength * 1.34 * twinkle)).toFixed(3);
+      const { darkLevel, peakSharpness, dotGrowth, flashColor } = ENVIRONMENT.stars;
+      for (const { element, radius, colorProperty, peak, period, phase } of stars) {
+        const beat = TURN * elapsed / period + phase;
+        const shimmer = Math.sin(beat + .62 * Math.sin(beat * .37 + phase));
+        const twinkle = ((1 + shimmer) / 2) ** peakSharpness;
+        element.style.opacity = (darkLevel + (peak - darkLevel) * twinkle).toFixed(3);
+        if (twinkle > .5) element.style.setProperty(colorProperty, flashColor);
+        else element.style.removeProperty(colorProperty);
+        if (radius) element.style.setProperty('r', `${(radius + dotGrowth * twinkle).toFixed(2)}px`);
       }
       previousStarUpdate = elapsed;
     }
@@ -234,9 +269,14 @@ export function startEnvironment(app, { stageWidth, glass, lighting, reflections
       if (motionPreference.matches) {
         corridor.reset();
         updateMirror(0, false);
+        crane.x = craneRestX;
         crane.y = craneRestY;
         crane.angle = 0;
-        for (const { element } of stars) element.style.removeProperty('opacity');
+        for (const { element, colorProperty } of stars) {
+          element.style.removeProperty('opacity');
+          element.style.removeProperty(colorProperty);
+          element.style.removeProperty('r');
+        }
         previousStarUpdate = -Infinity;
         elapsed = 0;
         app.render();
