@@ -174,9 +174,9 @@ export function makeReflection(label, points) {
   return layer.poly(points).fill(reflectionColor);
 }
 
-export function makeCraneRig(sprite) {
-  const x = sprite.x + sprite.width / 2;
-  const y = sprite.y + sprite.height / 2;
+export function makeCraneRig(sprite, [left, top, width, height]) {
+  const x = left + width / 2;
+  const y = top + height / 2;
   const rig = new Container({ label: 'paper-crane-motion', x, y });
   rig.pivot.set(x, y);
   rig.addChild(sprite);
@@ -199,7 +199,7 @@ function makeTwinkles() {
   }));
 }
 
-export function startEnvironment(app, { glass, lighting, reflections, crane }) {
+export function startEnvironment(app, { glass, lighting, reflections, crane, wind }) {
   const corridor = makeCorridorSweep();
   const stars = makeTwinkles();
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
@@ -240,7 +240,7 @@ export function startEnvironment(app, { glass, lighting, reflections, crane }) {
     const cranePhase = TURN * elapsed / ENVIRONMENT.crane.seconds;
     crane.x = craneRestX + ENVIRONMENT.crane.drift * Math.sin(cranePhase / 2);
     crane.y = craneRestY + ENVIRONMENT.crane.height * Math.sin(cranePhase);
-    crane.angle = ENVIRONMENT.crane.tilt * Math.sin(cranePhase - Math.PI / 4);
+    crane.angle = ENVIRONMENT.crane.tilt * Math.sin(cranePhase - Math.PI / 4) + wind.update(elapsed);
 
     if (elapsed - previousStarUpdate >= 1 / 30) {
       const { darkLevel, peakSharpness, dotGrowth, flashColor } = ENVIRONMENT.stars;
@@ -271,6 +271,7 @@ export function startEnvironment(app, { glass, lighting, reflections, crane }) {
         crane.x = craneRestX;
         crane.y = craneRestY;
         crane.angle = 0;
+        wind.reset();
         for (const { element, colorProperty } of stars) {
           element.style.removeProperty('opacity');
           element.style.removeProperty(colorProperty);
@@ -287,5 +288,6 @@ export function startEnvironment(app, { glass, lighting, reflections, crane }) {
 
   motionPreference.addEventListener('change', syncMotion);
   document.addEventListener('visibilitychange', syncMotion);
-  syncMotion();
+  if (!motionPreference.matches && !document.hidden) draw(performance.now());
+  else syncMotion();
 }

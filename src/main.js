@@ -5,6 +5,8 @@ import './style.css';
 import placements from './placements.json';
 import { makeCraneRig, makeMirrorLighting, makeReflection, startEnvironment } from './environment.js';
 
+import { createWind } from './wind.js';
+
 const WIDTH = 1600;
 const HEIGHT = 1000;
 const stage = document.querySelector('#stage');
@@ -120,7 +122,8 @@ async function renderPoster() {
     backgroundAlpha: 0, resolution: Math.min(devicePixelRatio || 1, 2),
     autoDensity: true, antialias: true, autoStart: false,
   });
-  art.dataset.renderer = app.renderer.type === RendererType.WEBGL ? 'webgl' : 'canvas';
+  const webgl = app.renderer.type === RendererType.WEBGL;
+  art.dataset.renderer = webgl ? 'webgl' : 'canvas';
   app.canvas.setAttribute('aria-hidden', 'true');
   art.append(app.canvas);
   const layers = new Container({ label: 'poster-artwork' });
@@ -137,16 +140,20 @@ async function renderPoster() {
     makeReflection('mirror-reflection-left', [675, 369, 747, 410, 732, 444, 664, 452]),
     makeReflection('mirror-reflection-right', [852, 474, 925, 456, 918, 516, 848, 530]),
   ];
-  const crane = makeCraneRig(sprites['paper-crane']);
+  const debug = new URLSearchParams(location.search).get('debug') === 'wind';
+  const weightTexture = await Assets.load(new URL('./assets/draco-wind-weights.png', import.meta.url).href);
+  const wind = createWind(sprites, lighting.bounce, { webgl, debug, weightTexture });
+  const crane = makeCraneRig(wind.layers['paper-crane'], placements['paper-crane']);
+  lighting.bounce = wind.bounce;
   layers.addChild(
-    sprites['oak-tree'],
+    wind.layers['oak-tree'],
     glass,
     lighting.stencil,
     lighting.sweep,
     ...reflections,
     sprites['mirror-frame'],
-    sprites['oak-overhang'],
-    sprites.draco,
+    wind.layers['oak-overhang'],
+    wind.layers.draco,
     lighting.bounce,
     sprites['ferret-low'],
     sprites['ferret-raised'],
@@ -155,8 +162,8 @@ async function renderPoster() {
 
   app.render();
   await typesetTitle();
+  startEnvironment(app, { glass, lighting, reflections, crane, wind });
   stage.classList.add('ready');
-  startEnvironment(app, { glass, lighting, reflections, crane });
 }
 
 scatterStars();
