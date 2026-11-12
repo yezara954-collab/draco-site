@@ -6,6 +6,7 @@ import placements from './placements.json';
 import { makeCraneRig, makeMirrorLighting, makeReflection, startEnvironment } from './environment.js';
 
 import { createWind } from './wind.js';
+import { makeIntro } from './intro.js';
 
 const WIDTH = 1600;
 const HEIGHT = 1000;
@@ -100,6 +101,10 @@ const layerTints = {
   'ferret-raised': 0xe5e5e5,
 };
 
+function pickLayer(layer) {
+  art.dispatchEvent(new CustomEvent('poster:pick', { bubbles: true, detail: { layer } }));
+}
+
 function makeSprite(label, texture) {
   const [x, y, width, height] = placements[label];
   const sprite = new Sprite({ label, texture });
@@ -109,9 +114,7 @@ function makeSprite(label, texture) {
   sprite.tint = layerTints[label] ?? 0xffffff;
   sprite.eventMode = 'static';
   sprite.hitArea = alphaHitArea(texture.source.resource);
-  sprite.on('pointertap', () => art.dispatchEvent(new CustomEvent('poster:pick', {
-    bubbles: true, detail: { layer: label },
-  })));
+  sprite.on('pointertap', () => pickLayer(label));
   return sprite;
 }
 
@@ -162,7 +165,15 @@ async function renderPoster() {
 
   app.render();
   await typesetTitle();
-  startEnvironment(app, { glass, lighting, reflections, crane, wind });
+  const intro = makeIntro(stage);
+  const apple = document.querySelector('#green-apple');
+  apple.addEventListener('click', () => pickLayer('green-apple'));
+  apple.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    pickLayer('green-apple');
+  });
+  startEnvironment(app, { glass, lighting, reflections, crane, wind, intro });
   stage.classList.add('ready');
 }
 

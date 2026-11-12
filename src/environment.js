@@ -1,3 +1,4 @@
+import { INTRO } from './motion-config.js';
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 
 // 环境动效配置。时间单位是秒，距离是舞台像素，强度 0 为关闭、1 为完全显现。
@@ -199,7 +200,7 @@ function makeTwinkles() {
   }));
 }
 
-export function startEnvironment(app, { glass, lighting, reflections, crane, wind }) {
+export function startEnvironment(app, { glass, lighting, reflections, crane, wind, intro }) {
   const corridor = makeCorridorSweep();
   const stars = makeTwinkles();
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
@@ -213,6 +214,7 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
   let previousFrame = null;
   let elapsed = 0;
   let previousStarUpdate = -Infinity;
+  let introSkipped = motionPreference.matches;
 
   function updateMirror(time, enabled = true) {
     const phase = time < mirror.delay ? -1 : (time - mirror.delay) % mirror.interval;
@@ -235,12 +237,16 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
   function draw(now) {
     if (previousFrame !== null) elapsed += (now - previousFrame) / 1000;
     previousFrame = now;
-    corridor.update(elapsed);
+    const opening = !introSkipped && elapsed < INTRO.duration;
+    if (opening) corridor.reset();
+    else corridor.update(introSkipped ? elapsed : elapsed - INTRO.duration);
+    intro.update(elapsed);
     updateMirror(elapsed);
     const cranePhase = TURN * elapsed / ENVIRONMENT.crane.seconds;
     crane.x = craneRestX + ENVIRONMENT.crane.drift * Math.sin(cranePhase / 2);
     crane.y = craneRestY + ENVIRONMENT.crane.height * Math.sin(cranePhase);
-    crane.angle = ENVIRONMENT.crane.tilt * Math.sin(cranePhase - Math.PI / 4) + wind.update(elapsed);
+    crane.angle = ENVIRONMENT.crane.tilt * Math.sin(cranePhase - Math.PI / 4);
+    wind.update(elapsed, opening ? elapsed : null);
 
     if (elapsed - previousStarUpdate >= 1 / 30) {
       const { darkLevel, peakSharpness, dotGrowth, flashColor } = ENVIRONMENT.stars;
@@ -266,6 +272,8 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
       request = null;
       previousFrame = null;
       if (motionPreference.matches) {
+        introSkipped = true;
+        intro.finish();
         corridor.reset();
         updateMirror(0, false);
         crane.x = craneRestX;
@@ -289,5 +297,8 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
   motionPreference.addEventListener('change', syncMotion);
   document.addEventListener('visibilitychange', syncMotion);
   if (!motionPreference.matches && !document.hidden) draw(performance.now());
-  else syncMotion();
+  else {
+    if (!motionPreference.matches) intro.update(0);
+    syncMotion();
+  }
 }
