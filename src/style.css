@@ -88,3 +88,13 @@ html.magic-pointer, html.magic-pointer * { cursor: none !important; }
   opacity: .7;
 }
 .next-back:hover, .next-back:focus-visible { opacity: 1; }
+
+.pose-debug-caption {
+  position: absolute;
+  top: 36px;
+  left: 54px;
+  margin: 0;
+  color: #e0efdf;
+  font: 18px/1.4 system-ui, sans-serif;
+  pointer-events: none;
+}

@@ -22,6 +22,7 @@ const canInteract = () => !route.inNext && !wand?.active;
 
 const assetUrls = {
   draco: new URL('./assets/draco.png', import.meta.url).href,
+  'draco-cast': new URL('./assets/draco-cast.png', import.meta.url).href,
   'mirror-glass': new URL('./assets/mirror-glass.png', import.meta.url).href,
   'mirror-frame': new URL('./assets/mirror-frame.png', import.meta.url).href,
   'ferret-low': new URL('./assets/ferret-low.png', import.meta.url).href,
@@ -109,7 +110,7 @@ const layerTints = {
 
 function pickLayer(layer) {
   if (!canInteract()) return;
-  if (layer === 'draco') wand?.start();
+  if (layer === 'draco' || layer === 'draco-cast') wand?.start();
   art.dispatchEvent(new CustomEvent('poster:pick', { bubbles: true, detail: { layer } }));
 }
 
@@ -152,8 +153,30 @@ async function renderPoster() {
     makeReflection('mirror-reflection-right', [852, 474, 925, 456, 918, 516, 848, 530]),
   ];
   const debug = debugView === 'wind';
-  const weightTexture = await Assets.load(new URL('./assets/draco-wind-weights.png', import.meta.url).href);
-  const wind = createWind(sprites, lighting.bounce, { webgl, debug, weightTexture });
+  const [idleWeights, castWeights] = await Promise.all([
+    Assets.load(new URL('./assets/draco-wind-weights.png', import.meta.url).href),
+    Assets.load(new URL('./assets/draco-cast-wind-weights.png', import.meta.url).href),
+  ]);
+  const wind = createWind(sprites, lighting.bounce, { webgl, debug, idleWeights, castWeights });
+  const idle = wind.layers.draco;
+  const casting = wind.layers['draco-cast'];
+  const frame = sprites['mirror-frame'];
+  const poseDebug = debugView === 'pose';
+  const poses = new Container({ label: 'draco-poses' });
+  poses.addChild(idle, casting, wind.bounce);
+  function setCastPose(active) {
+    idle.visible = !active || poseDebug;
+    casting.visible = active || poseDebug;
+    wind.bounce.renderable = !active && !poseDebug;
+    idle.alpha = poseDebug ? .52 : 1;
+    casting.alpha = poseDebug ? .58 : 1;
+    idle.eventMode = active ? 'none' : (webgl ? 'static' : 'passive');
+    casting.eventMode = active ? (webgl ? 'static' : 'passive') : 'none';
+    // Preserve the original layering at rest and clear the frame/foliage for the cast.
+    if (active) layers.setChildIndex(poses, layers.getChildIndex(crane) - 1);
+    else layers.setChildIndex(poses, layers.getChildIndex(frame) + 2);
+    stage.dataset.pose = active ? 'cast' : 'idle';
+  }
   const crane = makeCraneRig(wind.layers['paper-crane'], placements['paper-crane']);
   const craneArtwork = wind.layers['paper-crane'];
   const craneGlow = new Sprite({
@@ -170,29 +193,35 @@ async function renderPoster() {
     lighting.stencil,
     lighting.sweep,
     ...reflections,
-    sprites['mirror-frame'],
+    frame,
     wind.layers['oak-overhang'],
-    wind.layers.draco,
-    lighting.bounce,
+    poses,
     ferret.layer,
     crane,
   );
 
+  setCastPose(false);
+  if (poseDebug) {
+    const caption = document.createElement('p');
+    caption.className = 'pose-debug-caption';
+    caption.textContent = '姿势对齐 · 待机与挥杖叠加（静止）';
+    stage.append(caption);
+  }
   app.render();
   await typesetTitle();
   const intro = makeIntro(stage);
   const apple = document.querySelector('#green-apple');
-  wand = createWand(stage, crane, craneGlow, route, debugView === 'wand');
+  wand = createWand(stage, crane, craneGlow, route, debugView === 'wand', setCastPose);
   function isClickable(x, y) {
     const box = app.canvas.getBoundingClientRect();
     if (x < box.left || x >= box.right || y < box.top || y >= box.bottom) return false;
     const target = app.renderer.events.rootBoundary.hitTest(
       (x - box.left) * WIDTH / box.width, (y - box.top) * HEIGHT / box.height,
     );
-    return ['draco', 'draco-wind', 'ferret'].includes(target?.label);
+    return ['draco', 'draco-wind', 'draco-cast', 'draco-cast-wind', 'ferret'].includes(target?.label);
   }
   const interactions = createInteractions(stage, apple, isClickable, () => pickLayer('green-apple'), canInteract);
-  startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret, wand });
+  startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret, wand, poseDebug });
   stage.classList.add('ready');
 }
 

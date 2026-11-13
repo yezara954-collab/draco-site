@@ -2,7 +2,7 @@ import { Container, Mesh, MeshGeometry, Sprite, Texture } from 'pixi.js';
 
 import { INTRO, WIND } from './motion-config.js';
 
-const LAYERS = ['oak-tree', 'oak-overhang', 'draco', 'paper-crane'];
+const LAYERS = ['oak-tree', 'oak-overhang', 'draco', 'draco-cast', 'paper-crane'];
 // Shared world grid: both oak meshes use the same triangles even in their overlap.
 const OAK_GRID = { x: 566, y: 53, width: 984, height: 760, columns: 30, rows: 24 };
 
@@ -40,7 +40,7 @@ function readWeights(texture) {
 }
 
 function buildGrid(sprite, bounds, oak, dracoWeights) {
-  const { x, y, width, height, columns, rows } = bounds;
+  const { x, y, width, height, columns, rows, extraColumns = 0, extraWidth = 0 } = bounds;
   // Subdivide only the first five rows so the tiny loose ends have their own vertices.
   const headRows = dracoWeights ? 5 : 0;
   const subdivisions = 4;
@@ -54,7 +54,10 @@ function buildGrid(sprite, bounds, oak, dracoWeights) {
   const source = sprite.texture.orig;
   for (let row = 0; row <= rowCount; row++) {
     for (let col = 0; col <= columns; col++) {
-      const u = col / columns;
+      const localX = col < extraColumns
+        ? col / extraColumns * extraWidth
+        : extraWidth + (col - extraColumns) / (columns - extraColumns) * (width - extraWidth);
+      const u = localX / width;
       const v = vertical[row];
       const worldX = x + width * u;
       const worldY = y + height * v;
@@ -94,7 +97,11 @@ function layerTexture(sprite, padded, grid, bounds, debug = false) {
       while (top < vertical.length - 2 && row >= vertical[top + 1]) top++;
       const fy = (row - vertical[top]) / (vertical[top + 1] - vertical[top]);
       for (let x = 0; x < width; x++) {
-        const col = (sprite.x + (x + .5) / width * sprite.width - bounds.x) / bounds.width * columns;
+        const localX = sprite.x + (x + .5) / width * sprite.width - bounds.x;
+        const { extraColumns = 0, extraWidth = 0 } = bounds;
+        const col = localX < extraWidth
+          ? localX / extraWidth * extraColumns
+          : extraColumns + (localX - extraWidth) / (bounds.width - extraWidth) * (columns - extraColumns);
         const left = Math.min(columns - 1, Math.floor(col));
         const fx = col - left;
         const start = top * (columns + 1) + left;
@@ -147,11 +154,13 @@ function meshAlphaHit(geometry, sprite, width, height) {
   };
 }
 
-function makeLayer(sprite, { webgl, debug, weights }) {
+function makeLayer(sprite, { webgl, debug, weights, idleX }) {
   const oak = sprite.label.startsWith('oak-');
+  const extraColumns = sprite.label === 'draco-cast' ? 5 : 0;
   const bounds = oak ? OAK_GRID : {
     x: sprite.x, y: sprite.y, width: sprite.width, height: sprite.height,
-    columns: weights ? 23 : 10, rows: weights ? 35 : 8,
+    columns: weights ? 23 + extraColumns : 10, rows: weights ? 35 : 8,
+    extraColumns, extraWidth: extraColumns ? idleX - sprite.x : 0,
   };
   const grid = buildGrid(sprite, bounds, oak, weights);
   const layer = new Container({ label: sprite.label + '-wind', x: bounds.x, y: bounds.y });
@@ -271,10 +280,11 @@ function makeGusts() {
   };
 }
 
-export function createWind(sprites, bounce, { webgl, weightTexture, debug }) {
-  const dracoWeights = readWeights(weightTexture);
+export function createWind(sprites, bounce, { webgl, idleWeights, castWeights, debug }) {
+  const weightsByPose = { draco: readWeights(idleWeights), 'draco-cast': readWeights(castWeights) };
+  const idleX = sprites.draco.x;
   const affected = Object.fromEntries(LAYERS.map(name => [
-    name, makeLayer(sprites[name], { webgl, debug, weights: name === 'draco' ? dracoWeights : null }),
+    name, makeLayer(sprites[name], { webgl, debug, weights: weightsByPose[name], idleX }),
   ]));
   const draco = affected.draco;
   const movingBounce = webgl ? new Mesh({

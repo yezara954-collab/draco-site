@@ -200,7 +200,7 @@ function makeTwinkles() {
   }));
 }
 
-export function startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret, wand }) {
+export function startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret, wand, poseDebug }) {
   const corridor = makeCorridorSweep();
   const stars = makeTwinkles();
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
@@ -267,7 +267,7 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
     }
     wand.update(dt);
     updateMirror(elapsed, true, wand.mirrorLight);
-    wind.update(elapsed, opening ? elapsed : null, wand.gust);
+    if (!poseDebug || wand.active) wind.update(elapsed, opening ? elapsed : null, wand.gust);
 
     if (elapsed - previousStarUpdate >= 1 / 30) {
       const { darkLevel, peakSharpness, dotGrowth, flashColor } = ENVIRONMENT.stars;
