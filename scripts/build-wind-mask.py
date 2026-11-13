@@ -25,22 +25,20 @@ def smooth(low, high, value):
 
 solid = alpha > .35
 edge_distance = distance_transform_edt(solid, sampling=(1 / height, 1 / width))
-# Four loose ends traced from the annotated close-up in source-image pixels.
-# The crown and the painted face are outside these patches.
+# The latest close-up pins the two outer locks. Keep the fringe and the
+# remaining inner lock, with a taper before the pinned right temple.
 tip_regions = [
-    [(148, 100), (165, 96), (186, 99), (195, 115), (201, 140),
-     (194, 153), (178, 149), (159, 132), (146, 115)],
     [(292, 100), (305, 98), (319, 107), (327, 119),
      (316, 124), (306, 120), (294, 115)],
     [(328, 94), (342, 92), (357, 98), (364, 111),
      (354, 121), (343, 119), (334, 108)],
-    [(351, 73), (367, 69), (382, 82), (390, 99),
-     (377, 113), (365, 110), (355, 99)],
 ]
 tips = np.zeros((height, width))
 for region in tip_regions:
     tips = np.maximum(tips, polygon([(px / width, py / height) for px, py in region]))
 hair = gaussian_filter(tips, sigma=(3.4, 3.8))
+# Pin the first mesh column at the marked right lock and all columns beyond it.
+hair *= 1 - smooth(328 / width, 348 / width, x)
 # End the feathering before the eyebrow and ear. The low-weight cutoff also
 # prevents a one-pixel blur tail from moving a neighbouring mesh cell.
 fixed_face = ((x >= 203 / width) & (x < 330 / width) & (y >= 121 / height))
