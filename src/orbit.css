@@ -158,19 +158,11 @@
   backface-visibility: hidden;
 }
 .orbit-cover-back {
-  display: grid;
-  place-items: center;
   transform: rotateY(180deg);
   background: #e7e0d3;
-  color: #51483a;
 }
-.picture-photo-slot {
-  display: grid;
-  place-items: center;
-  width: 86%;
-  height: 86%;
-  border: 1px solid #8d7e6855;
-  font-size: clamp(.75rem, 1.5vw, 1rem);
+.orbit-cover-back img {
+  object-fit: contain;
 }
 .letter-flight {
   position: absolute;

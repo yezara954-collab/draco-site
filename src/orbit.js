@@ -1,5 +1,6 @@
 import { makeOrbitSky } from './orbit-sky.js';
 import { ORBIT as settings, ORBIT_SKY } from './motion-config.js';
+import picturePhoto from './assets/covers/cover-picture-back.webp';
 
 const HOME = '#';
 const ORBIT = '#/next';
@@ -129,17 +130,15 @@ export function makeNextRoute(stage) {
       const back = document.createElement('span');
       back.className = 'orbit-cover-back';
       back.setAttribute('aria-hidden', 'true');
-      const photo = covers['./assets/covers/cover-picture-back.png'];
-      if (photo) back.append(coverImage(photo, 'Draco 的照片'));
-      else back.innerHTML = '<span class="picture-photo-slot">照片待上传</span>';
+      back.append(coverImage(picturePhoto, 'Draco 的拍立得照片'));
       button.querySelector('.orbit-cover-flip').append(back);
     }
     button.addEventListener('click', event => {
       if (page !== 'orbit' || rotation) return;
       if (i !== index) {
         select(i);
-      } else if (id === 'picture') {
-        showPictureBack(!button.classList.contains('is-flipped'));
+      } else if (id === 'picture' && !button.classList.contains('is-flipped')) {
+        showPictureBack(true);
       } else if (id !== 'music' || !cover || event.detail === 0 || event.target.closest('.music-pause')) {
         push('#/' + id, ORBIT);
       }
@@ -169,7 +168,7 @@ export function makeNextRoute(stage) {
   function showPictureBack(flipped) {
     picture.classList.toggle('is-flipped', flipped);
     picture.querySelector('.orbit-cover-back').setAttribute('aria-hidden', String(!flipped));
-    picture.setAttribute('aria-label', flipped ? 'Picture，翻回封面' : 'Picture，翻到照片背面');
+    picture.setAttribute('aria-label', flipped ? 'Picture，进入板块' : 'Picture，翻到照片背面');
   }
 
   function fit() {
