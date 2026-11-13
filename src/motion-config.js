@@ -148,3 +148,31 @@ export const ORBIT = {
   swipeDistance: 42,       // 拖动触发切换所需的最小水平距离
   tilt: 3,                 // 鼠标视差的最大倾斜角度
 };
+
+export const ORBIT_SKY = {
+  // 月亮的横纵位置是屏幕比例，半径按短边计算并限制在像素范围内。
+  moon: {
+    position: [.22, .23], mobilePosition: [.24, .18],
+    radius: [.108, 35, 106], light: '#fff3d5', middle: '#e7d5a9', shade: '#a39a7d',
+    halo: '#f7d69a', haloRadius: 2.65, haloOpacity: .20, breath: .035, period: 8.8,
+    craters: 26, grain: 8, // 环形山数量和表面斑驳强度
+  },
+  // 云从远到近。大小和纵向位置是屏幕比例，速度和视差以像素计。
+  clouds: [
+    { count: 5, width: [.24, .38], y: [.15, .58], speed: 4, parallax: 5, opacity: .43, light: '#416961', shade: '#0d2825', rim: '#9a9670' },
+    { count: 5, width: [.38, .58], y: [.33, .72], speed: 8, parallax: 13, opacity: .58, light: '#416b5d', shade: '#0b2622', rim: '#b9a37a' },
+    { count: 5, width: [.43, .68], y: [.72, 1.07], speed: 14, parallax: 23, opacity: .67, light: '#557a67', shade: '#14332a', rim: '#c5ac83' },
+  ],
+  veil: { width: .31, opacity: .77, yOffset: .64 }, // 从月亮下沿经过的远景云
+  cloudHeight: .39, cloudGrain: 10, textureCount: 4, // 云纹理比例、颗粒强度、每层纹理数量
+  turnPush: 48, turnResponse: 6, turnSettle: 2.6, // 旋转对云的牵引、跟随速度和回落速度
+  parallaxResponse: 3.8, // 云层追随鼠标的速度
+  meteor: {
+    interval: [1.5, 4], doubleChance: .16, brightInterval: [18, 22],
+    limit: 5, reducedLimit: 2, life: [.64, 1.05], head: '#fff0ca', tail: '#84dcca',
+    speed: [.24, .40], slope: .55, fadeFloor: .64, length: [.10, .19], sparks: 6, brightScale: 1.65,
+  }, // 普通/双流星频率、亮流星间隔、池容量、速度/尾长和最深消失位置（屏幕比例）、颜色与火花数
+  stars: { count: 112, dustCount: 19, color: '#e2eee0', period: [3.8, 9.5], dustSpeed: 3 },
+  quality: { maxDpr: 1.35, maxPixels: 1700000, lowFps: 43, recoverFps: 55, lowSeconds: 3, recoverSeconds: 8 },
+  // 背景渲染像素上限，以及持续低帧率降级、恢复的阈值。
+};

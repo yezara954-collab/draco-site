@@ -1,3 +1,4 @@
+import { makeOrbitSky } from './orbit-sky.js';
 import { ORBIT as settings } from './motion-config.js';
 
 const HOME = '#';
@@ -105,6 +106,7 @@ export function makeNextRoute(stage) {
     return button;
   });
 
+  let sky;
   let page = '';
   let index = 0;
   let angle = 0;
@@ -122,6 +124,8 @@ export function makeNextRoute(stage) {
     const w = interaction.clientWidth;
     const h = interaction.clientHeight;
     if (!w || !h) return;
+    sky ??= makeOrbitSky(screen);
+    sky.fit(w, h, reduced.matches);
     centerX = w / 2;
     centerY = h / 2;
     const narrow = w < settings.mobileWidth;
@@ -289,6 +293,7 @@ export function makeNextRoute(stage) {
       angle = index * step;
       rotation = null;
     }
+    sky?.freeze();
     if (page === 'orbit') paint();
   });
   routeBack(screen.querySelector('.orbit-back'), HOME, HOME, sync);
@@ -306,6 +311,7 @@ export function makeNextRoute(stage) {
     },
     update(dt) {
       if (page !== 'orbit' || !dt) return;
+      const rawDt = dt;
       dt = Math.min(dt, .05);
       if (reduced.matches && !rotation) return;
       entrance = Math.min(Math.max(enterEnd + settings.labelFade, settings.dustTime), entrance + dt);
@@ -313,6 +319,7 @@ export function makeNextRoute(stage) {
       const follow = Math.min(1, dt * 8);
       tiltX = mix(tiltX, targetX, follow);
       tiltY = mix(tiltY, targetY, follow);
+      const before = angle;
       if (rotation) {
         rotation.age += dt;
         const t = clamp(rotation.age / rotation.duration);
@@ -327,6 +334,10 @@ export function makeNextRoute(stage) {
           angle = index * step;
           rotation = null;
         }
+      }
+      if (!reduced.matches) {
+        sky?.update(dt, rawDt, targetY / settings.tilt, -targetX / settings.tilt,
+          shortest(angle - before) / dt * settings.turnTime / step);
       }
       paint();
     },
