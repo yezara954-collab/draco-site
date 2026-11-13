@@ -2,7 +2,6 @@ import { WAND } from './motion-config.js';
 
 const WIDTH = 1600;
 const HEIGHT = 1000;
-const NEXT = '#/next';
 const TURN = Math.PI * 2;
 const clamp = value => Math.max(0, Math.min(1, value));
 const mix = (a, b, t) => a + (b - a) * t;
@@ -80,58 +79,6 @@ function dot(ctx, x, y, size, alpha, color, star) {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
-}
-
-export function makeNextRoute(stage) {
-  const screen = document.createElement('section');
-  screen.className = 'next-scene';
-  screen.setAttribute('aria-label', 'To be continued');
-  screen.innerHTML = '<a class="next-back" href="#" aria-label="返回首页">←</a><h1>To be continued…</h1>';
-  stage.after(screen);
-  const back = screen.querySelector('a');
-  let inNext = location.hash === NEXT;
-  let pushed = false;
-  let fade = WAND.nextFade;
-  function sync() {
-    const next = location.hash === NEXT;
-    if (inNext && !next) {
-      // 重建首页，让纸鹤、开场以及其他互动统一回到各自的初始状态。
-      location.reload();
-      return;
-    }
-    inNext = next;
-    screen.hidden = !next;
-    stage.inert = next;
-    stage.classList.toggle('routed-away', next);
-  }
-  window.addEventListener('hashchange', sync);
-  back.addEventListener('click', event => {
-    event.preventDefault();
-    if (pushed) history.back();
-    else {
-      history.replaceState(history.state, '', location.pathname + location.search);
-      sync();
-    }
-  });
-  sync();
-  return {
-    get inNext() { return inNext; },
-    enter() {
-      if (inNext) return;
-      pushed = true;
-      fade = 0;
-      screen.style.setProperty('--next-opacity', 0);
-      history.pushState(null, '', NEXT);
-      sync();
-      back.focus({ preventScroll: true });
-    },
-    update(dt) {
-      if (!inNext || fade >= WAND.nextFade) return;
-      fade = Math.min(fade + dt, WAND.nextFade);
-      screen.style.setProperty('--next-opacity', smooth(fade / WAND.nextFade));
-      if (fade === WAND.nextFade) screen.style.removeProperty('--next-opacity');
-    },
-  };
 }
 
 export function createWand(stage, crane, craneGlow, route, debug, showPose) {

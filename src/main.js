@@ -9,7 +9,9 @@ import { createWind } from './wind.js';
 import { makeIntro } from './intro.js';
 import { createInteractions } from './interactions.js';
 import { createFerret } from './ferret.js';
-import { createWand, makeNextRoute } from './wand.js';
+import { createWand } from './wand.js';
+import { makeNextRoute } from './orbit.js';
+import './orbit.css';
 
 const WIDTH = 1600;
 const HEIGHT = 1000;
@@ -237,7 +239,7 @@ async function renderPoster() {
     );
     return target?.label === 'ferret' || poseLayers.includes(target?.label?.replace(/-wind$/, ''));
   }
-  const interactions = createInteractions(stage, apple, isClickable, () => pickLayer('green-apple'), canInteract);
+  const interactions = createInteractions(stage, apple, isClickable, () => pickLayer('green-apple'), canInteract, route.isClickable);
   startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret, wand, poseDebug });
   stage.classList.add('ready');
 }

@@ -112,7 +112,6 @@ export const WAND = {
   curtainTime: 1.40,                       // 星尘铺开并淡到黑
   curtainLead: .20,                        // 在纸鹤飞行结束前多久开始光幕
   reducedFade: .25,                        // 减少动态效果时淡到黑
-  nextFade: .48,                           // 下一界面文字淡入
   gustStrength: 1,                        // 挥杖阵风，1 等于现有环境阵风的最大值
   mirrorLight: .15,                        // 蓄势期间镜面反光增量
   arcWidth: 12,                            // 新月光痕中央最宽处
@@ -120,4 +119,32 @@ export const WAND = {
   minCraneScale: .27,                      // 飞远时纸鹤最小比例
   particleLimit: 94,                       // 粒子池上限，代码最高允许 120
   colors: ['#fff6dd', '#ffe1a2', '#b2efdb'], // 魔法银白、淡金、青绿
+};
+
+export const ORBIT = {
+  // 板块显示顺序、名称和占位封面配色。id 同时用于网址和封面文件名。
+  sections: [
+    { id: 'picture', name: 'Picture', colors: ['#24453b', '#0b1b18'] },
+    { id: 'fanfic', name: '同人文', colors: ['#214441', '#0a1b1d'] },
+    { id: 'letter', name: 'Letter', colors: ['#234252', '#0b1720'] },
+    { id: 'music', name: 'Music', colors: ['#493c25', '#1b170f'] },
+  ],
+  cardWidth: 288,            // 桌面最大卡片宽度，宽高比固定 4:5
+  radius: [.74, .28],       // 横、纵半径，相对于卡片宽度
+  mobileRadius: [.73, .29], // 窄屏的横、纵半径
+  mobileWidth: 600,         // 使用窄屏排布的宽度阈值
+  scale: [.55, 1, 1.7],    // 后端、前端缩放和深度曲线指数
+  brightness: [.59, 1, 1.15], // 后端、前端亮度和曲线指数
+  blur: [1.85, 0, .92],     // 后端、前端模糊像素和曲线指数
+  turnTime: .90,           // 一次旋转时长，easeInOutCubic
+  fadeTurn: .36,           // 减少动态效果时一次淡出、淡入的总时长
+  enterFade: .54,          // 板块页淡入
+  riseTime: .66,           // 单张卡片浮起时长
+  stagger: .12,           // 卡片入场间隔
+  labelFade: .32,          // 当前板块名淡入
+  dustTime: 1.30,          // 入场星尘扩散并消失的时长
+  dustCount: 40,           // 入场星尘粒子数量
+  pointPeriod: 16,         // 轨道亮点绕行一圈所需时间
+  swipeDistance: 42,       // 拖动触发切换所需的最小水平距离
+  tilt: 3,                 // 鼠标视差的最大倾斜角度
 };

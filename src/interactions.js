@@ -142,7 +142,7 @@ function makeApple(apple, burst) {
   };
 }
 
-export function createInteractions(stage, apple, isClickable, pickApple, canInteract) {
+export function createInteractions(stage, apple, isClickable, pickApple, canInteract, isRouteClickable) {
   const { ctx, clear } = makeCanvas();
   const pointer = { x: 0, y: 0, visible: false, hover: 0 };
   const pool = Array.from({ length: MAGIC.limit }, () => ({ life: 0 }));
@@ -311,7 +311,8 @@ export function createInteractions(stage, apple, isClickable, pickApple, canInte
       drawSparkles(dt);
       drawJuice(dt);
       if (pointer.visible) {
-        const target = interactive && (appleHover || isClickable(pointer.x, pointer.y)) ? 1 : 0;
+        const target = (interactive && (appleHover || isClickable(pointer.x, pointer.y)))
+          || isRouteClickable(pointer.x, pointer.y) ? 1 : 0;
         pointer.hover += (target - pointer.hover) * Math.min(1, dt * 16);
         drawCursor(ctx, pointer.x, pointer.y, pointer.hover, reduced);
       }
