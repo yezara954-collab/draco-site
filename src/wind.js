@@ -41,15 +41,21 @@ function readWeights(texture) {
 
 function buildGrid(sprite, bounds, oak, dracoWeights) {
   const { x, y, width, height, columns, rows } = bounds;
+  // Subdivide only the first five rows so the tiny loose ends have their own vertices.
+  const headRows = dracoWeights ? 5 : 0;
+  const subdivisions = 4;
+  const rowCount = rows + headRows * (subdivisions - 1);
+  const vertical = Array.from({ length: rowCount + 1 }, (_, row) =>
+    (row < headRows * subdivisions ? row / subdivisions : row - headRows * (subdivisions - 1)) / rows);
   const positions = [];
   const uvs = [];
   const weights = [];
   const indices = [];
   const source = sprite.texture.orig;
-  for (let row = 0; row <= rows; row++) {
+  for (let row = 0; row <= rowCount; row++) {
     for (let col = 0; col <= columns; col++) {
       const u = col / columns;
-      const v = row / rows;
+      const v = vertical[row];
       const worldX = x + width * u;
       const worldY = y + height * v;
       positions.push(width * u, height * v);
@@ -59,7 +65,7 @@ function buildGrid(sprite, bounds, oak, dracoWeights) {
         oak ? ((worldY - sprite.y) / sprite.height * source.height + 2) / (source.height + 4) : v,
       );
       weights.push(oak ? oakWeight(worldX, worldY) : dracoWeights ? dracoWeights(u, v) : craneWeight(u, v));
-      if (col < columns && row < rows) {
+      if (col < columns && row < rowCount) {
         const top = row * (columns + 1) + col;
         const bottom = top + columns + 1;
         indices.push(top, top + 1, bottom, top + 1, bottom + 1, bottom);
@@ -67,7 +73,7 @@ function buildGrid(sprite, bounds, oak, dracoWeights) {
     }
   }
   return { positions: new Float32Array(positions), uvs: new Float32Array(uvs),
-    indices: new Uint32Array(indices), weights };
+    indices: new Uint32Array(indices), weights, vertical };
 }
 
 function layerTexture(sprite, padded, grid, bounds, debug = false) {
@@ -80,11 +86,13 @@ function layerTexture(sprite, padded, grid, bounds, debug = false) {
     const colors = canvas(width, height);
     const brush = colors.getContext('2d');
     const pixels = brush.createImageData(width, height);
-    const { columns, rows } = bounds;
+    const { columns } = bounds;
+    const { vertical } = grid;
+    let top = 0;
     for (let y = 0; y < height; y++) {
-      const row = (sprite.y + (y + .5) / height * sprite.height - bounds.y) / bounds.height * rows;
-      const top = Math.min(rows - 1, Math.floor(row));
-      const fy = row - top;
+      const row = (sprite.y + (y + .5) / height * sprite.height - bounds.y) / bounds.height;
+      while (top < vertical.length - 2 && row >= vertical[top + 1]) top++;
+      const fy = (row - vertical[top]) / (vertical[top + 1] - vertical[top]);
       for (let x = 0; x < width; x++) {
         const col = (sprite.x + (x + .5) / width * sprite.width - bounds.x) / bounds.width * columns;
         const left = Math.min(columns - 1, Math.floor(col));
@@ -157,7 +165,7 @@ function makeLayer(sprite, { webgl, debug, weights }) {
     const heightFraction = grid.positions[offset + 1] / bounds.height;
     const material = oak ? WIND.oak : heightFraction < .15 ? WIND.hair : WIND.robe;
     // Hair tips lag behind the roots. Fabric folds travel down from the shoulder.
-    const lag = material.delay * (material === WIND.hair ? 1 - heightFraction / .15 : heightFraction);
+    const lag = material.delay * (material === WIND.hair ? heightFraction / .15 : heightFraction);
     moving.push({ index, worldX, phase: worldX * .022 + worldY * .031, weight, material, lag });
   });
   return {

@@ -25,13 +25,27 @@ def smooth(low, high, value):
 
 solid = alpha > .35
 edge_distance = distance_transform_edt(solid, sampling=(1 / height, 1 / width))
-# Gold and cream pixels in the top silhouette identify strands. Keep the
-# forehead, ears and the face-side hairline behind a padded, fixed boundary.
-hair_zone = polygon([(.20, 0), (.76, 0), (.79, .079), (.65, .107),
-                     (.60, .066), (.43, .057), (.37, .105), (.24, .082)])
-gold = smooth(.015, .14, red - blue) * smooth(.37, .68, red)
-hair = hair_zone * (.48 + .52 * gold) * (1 - smooth(.012, .077, edge_distance))
-hair *= 1 - smooth(.065, .115, y)
+# Four loose ends traced from the annotated close-up in source-image pixels.
+# The crown and the painted face are outside these patches.
+tip_regions = [
+    [(148, 100), (165, 96), (186, 99), (195, 115), (201, 140),
+     (194, 153), (178, 149), (159, 132), (146, 115)],
+    [(292, 100), (305, 98), (319, 107), (327, 119),
+     (316, 124), (306, 120), (294, 115)],
+    [(328, 94), (342, 92), (357, 98), (364, 111),
+     (354, 121), (343, 119), (334, 108)],
+    [(351, 73), (367, 69), (382, 82), (390, 99),
+     (377, 113), (365, 110), (355, 99)],
+]
+tips = np.zeros((height, width))
+for region in tip_regions:
+    tips = np.maximum(tips, polygon([(px / width, py / height) for px, py in region]))
+hair = gaussian_filter(tips, sigma=(3.4, 3.8))
+# End the feathering before the eyebrow and ear. The low-weight cutoff also
+# prevents a one-pixel blur tail from moving a neighbouring mesh cell.
+fixed_face = ((x >= 203 / width) & (x < 330 / width) & (y >= 121 / height))
+fixed_ear = (x >= 330 / width) & (y >= 120 / height)
+hair[(y < 65 / height) | fixed_face | fixed_ear | (hair < .025)] = 0
 
 # Separate the robe by its painted outline and darker fabric pigments.
 robe_zone = polygon([(.35, .19), (.91, .16), (.99, .85), (.8, .886),
@@ -57,6 +71,7 @@ protected = (
     | polygon([(0, .72), (.086, .552), (.132, .565), (.037, .727)])
     | (y >= .889)
 )
-weights = gaussian_filter(np.maximum(hair, robe) * solid, sigma=(5, 3))
+weights = gaussian_filter(robe * solid, sigma=(5, 3))
 weights *= ~maximum_filter(protected, size=(67, 61))
+weights = np.maximum(weights, hair)
 Image.fromarray(np.uint8(np.clip(weights, 0, 1) * 255)).save(assets / "draco-wind-weights.png", optimize=True)
