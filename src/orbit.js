@@ -125,12 +125,12 @@ export function makeNextRoute(stage) {
     const h = interaction.clientHeight;
     if (!w || !h) return;
     sky ??= makeOrbitSky(screen);
-    sky.fit(w, h, reduced.matches);
     centerX = w / 2;
     centerY = h / 2;
     const narrow = w < settings.mobileWidth;
     const width = Math.min(settings.cardWidth, w * (narrow ? .405 : .29), h * .37);
     const height = width * 1.25;
+    sky.fit(w, h, width, reduced.matches);
     trackOffset = height * .49;
     const [rx, ry] = narrow ? settings.mobileRadius : settings.radius;
     radiusX = width * rx;
@@ -336,8 +336,7 @@ export function makeNextRoute(stage) {
         }
       }
       if (!reduced.matches) {
-        sky?.update(dt, rawDt, targetY / settings.tilt, -targetX / settings.tilt,
-          shortest(angle - before) / dt * settings.turnTime / step);
+        sky?.update(dt, rawDt, -shortest(angle - before) / dt * settings.turnTime / step);
       }
       paint();
     },
