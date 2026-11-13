@@ -87,3 +87,27 @@ export const FERRET = {
   spiralWidth: 40,         // 盘旋横向幅度
   colors: ['#edf8ff', '#bdf4de', '#f5dfa8'], // 银白为主，少量淡青绿和淡金
 };
+
+// 挥杖动画。坐标以 1600 × 1000 舞台左上角为原点，时间单位为秒。
+export const WAND = {
+  tip: [679, 621],                         // 原画魔杖最细的尖端
+  crane: [427, 278.5],                     // 千纸鹤原位的中心，施法时会追踪实际漂浮位置
+  crescent: [[706, 609], [841, 570], [846, 461]], // 新月光痕的两个控制点和末端
+  link: [[613, 483], [591, 302]],           // 杖尖到纸鹤的两个曲线控制点
+  flight: [[366, 245], [228, 298], [-135, -110]], // 飞行的两个控制点和画外终点
+  chargeTime: .30,                         // 杖尖蓄势
+  swingTime: .70,                          // 挥杖光痕
+  linkTime: .80,                           // 魔法连接飞到千纸鹤
+  flightTime: 1.50,                        // 千纸鹤飞离画面
+  curtainTime: 1.03,                       // 星尘铺开并淡到黑
+  curtainLead: .20,                        // 在纸鹤飞行结束前多久开始光幕
+  reducedFade: .25,                        // 减少动态效果时淡到黑
+  nextFade: .48,                           // 下一界面文字淡入
+  gustStrength: 1,                        // 挥杖阵风，1 等于现有环境阵风的最大值
+  mirrorLight: .15,                        // 蓄势期间镜面反光增量
+  arcWidth: 12,                            // 新月光痕中央最宽处
+  trailLength: .54,                        // 纸鹤拖尾在飞行时间中占的比例
+  minCraneScale: .27,                      // 飞远时纸鹤最小比例
+  particleLimit: 94,                       // 粒子池上限，代码最高允许 120
+  colors: ['#fff6dd', '#ffe1a2', '#b2efdb'], // 魔法银白、淡金、青绿
+};

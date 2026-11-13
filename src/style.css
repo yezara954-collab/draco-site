@@ -55,3 +55,36 @@ body { margin: 0; }
 
 .magic-canvas { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
 html.magic-pointer, html.magic-pointer * { cursor: none !important; }
+
+.wand-effects { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.stage.routed-away { visibility: hidden; }
+.next-scene {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000;
+  color: #ede8d9;
+  font-family: "Bodoni Moda", Didot, Georgia, serif;
+}
+.next-scene[hidden] { display: none; }
+.next-scene h1 {
+  margin: 0;
+  font-size: clamp(2rem, 6vw, 5.5rem);
+  font-weight: 400;
+  opacity: var(--next-opacity, 1);
+}
+.next-back {
+  position: absolute;
+  top: max(1rem, env(safe-area-inset-top));
+  left: max(1rem, env(safe-area-inset-left));
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  color: inherit;
+  text-decoration: none;
+  font: 1.35rem/1 system-ui, sans-serif;
+  opacity: .7;
+}
+.next-back:hover, .next-back:focus-visible { opacity: 1; }

@@ -116,6 +116,37 @@ function layerTexture(sprite, padded, grid, bounds, debug = false) {
   return Texture.from(image);
 }
 
+// 将变形后三角形内的点击还原到原图，透明像素仍然点不到。
+function meshAlphaHit(geometry, sprite, width, height) {
+  const { indices, positions, uvs } = geometry;
+  const { width: textureWidth, height: textureHeight } = sprite.texture.orig;
+  return {
+    contains(x, y) {
+      if (x < -width * .1 || x > width * 1.3 || y < -height * .1 || y > height) return false;
+      for (let i = 0; i < indices.length; i += 3) {
+        const a = indices[i] * 2;
+        const b = indices[i + 1] * 2;
+        const c = indices[i + 2] * 2;
+        const ax = positions[a], ay = positions[a + 1];
+        const bx = positions[b], by = positions[b + 1];
+        const cx = positions[c], cy = positions[c + 1];
+        if (x < Math.min(ax, bx, cx) || x > Math.max(ax, bx, cx)
+          || y < Math.min(ay, by, cy) || y > Math.max(ay, by, cy)) continue;
+        const determinant = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+        if (!determinant) continue;
+        const u = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / determinant;
+        const v = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / determinant;
+        const w = 1 - u - v;
+        if (Math.min(u, v, w) < -1e-7) continue;
+        const imageX = (u * uvs[a] + v * uvs[b] + w * uvs[c]) * textureWidth;
+        const imageY = (u * uvs[a + 1] + v * uvs[b + 1] + w * uvs[c + 1]) * textureHeight;
+        if (sprite.hitArea.contains(imageX, imageY)) return true;
+      }
+      return false;
+    },
+  };
+}
+
 function makeLayer(sprite, { webgl, debug, weights }) {
   const oak = sprite.label.startsWith('oak-');
   const bounds = oak ? OAK_GRID : {
@@ -139,7 +170,7 @@ function makeLayer(sprite, { webgl, debug, weights }) {
     const texture = oak ? layerTexture(sprite, true) : sprite.texture;
     layer.addChild(mesh(texture, { tint: sprite.tint, label: sprite.label + '-mesh' }));
     layer.eventMode = 'static';
-    layer.hitArea = {
+    layer.hitArea = weights ? meshAlphaHit(geometry, sprite, width, height) : {
       contains: (x, y) => sprite.hitArea.contains(
         (x - offsetX) / width * sprite.texture.orig.width,
         (y - offsetY) / height * sprite.texture.orig.height,
@@ -257,7 +288,7 @@ export function createWind(sprites, bounce, { webgl, weightTexture, debug }) {
   return {
     layers: Object.fromEntries(LAYERS.map(name => [name, affected[name].layer])),
     bounce: movingBounce,
-    update(time, introTime) {
+    update(time, introTime, castGust = 0) {
       const arrivals = gusts(time);
       for (const { geometry, rest, moving, shifts, constraints } of meshes) {
         // Both tree layers use identical positions, including the anti-fold correction.
@@ -283,6 +314,7 @@ export function createWind(sprites, bounce, { webgl, weightTexture, debug }) {
               gust = Math.max(gust, INTRO.gustStrength * pulse);
             }
           }
+          if (material !== WIND.oak) gust = Math.max(gust, castGust);
           const breeze = material.breeze[0] + wave * (material.breeze[1] - material.breeze[0]);
           const peak = material.gust[0] + wave * (material.gust[1] - material.gust[0]);
           const flutter = 1 - material.flutter * (.5 + .5 * Math.sin(phase + (time - lag) * 12));

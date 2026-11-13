@@ -9,12 +9,16 @@ import { createWind } from './wind.js';
 import { makeIntro } from './intro.js';
 import { createInteractions } from './interactions.js';
 import { createFerret } from './ferret.js';
+import { createWand, makeNextRoute } from './wand.js';
 
 const WIDTH = 1600;
 const HEIGHT = 1000;
 const stage = document.querySelector('#stage');
 const art = document.querySelector('#art');
 const viewport = document.querySelector('.viewport');
+const route = makeNextRoute(stage);
+let wand;
+const canInteract = () => !route.inNext && !wand?.active;
 
 const assetUrls = {
   draco: new URL('./assets/draco.png', import.meta.url).href,
@@ -104,6 +108,8 @@ const layerTints = {
 };
 
 function pickLayer(layer) {
+  if (!canInteract()) return;
+  if (layer === 'draco') wand?.start();
   art.dispatchEvent(new CustomEvent('poster:pick', { bubbles: true, detail: { layer } }));
 }
 
@@ -138,7 +144,7 @@ async function renderPoster() {
     [name, makeSprite(name, await Assets.load(url))]));
   const sprites = Object.fromEntries(entries);
   const debugView = new URLSearchParams(location.search).get('debug');
-  const ferret = createFerret(sprites, debugView === 'ferret', () => pickLayer('ferret'));
+  const ferret = createFerret(sprites, debugView === 'ferret', () => pickLayer('ferret'), canInteract);
   const glass = sprites['mirror-glass'];
   const lighting = makeMirrorLighting(glass, sprites.draco);
   const reflections = [
@@ -149,6 +155,14 @@ async function renderPoster() {
   const weightTexture = await Assets.load(new URL('./assets/draco-wind-weights.png', import.meta.url).href);
   const wind = createWind(sprites, lighting.bounce, { webgl, debug, weightTexture });
   const crane = makeCraneRig(wind.layers['paper-crane'], placements['paper-crane']);
+  const craneArtwork = wind.layers['paper-crane'];
+  const craneGlow = new Sprite({
+    label: 'paper-crane-spell-glow', texture: sprites['paper-crane'].texture,
+    x: craneArtwork.x, y: craneArtwork.y,
+    width: placements['paper-crane'][2], height: placements['paper-crane'][3],
+    blendMode: 'add', eventMode: 'none', alpha: 0,
+  });
+  crane.addChild(craneGlow);
   lighting.bounce = wind.bounce;
   layers.addChild(
     wind.layers['oak-tree'],
@@ -168,6 +182,7 @@ async function renderPoster() {
   await typesetTitle();
   const intro = makeIntro(stage);
   const apple = document.querySelector('#green-apple');
+  wand = createWand(stage, crane, craneGlow, route, debugView === 'wand');
   function isClickable(x, y) {
     const box = app.canvas.getBoundingClientRect();
     if (x < box.left || x >= box.right || y < box.top || y >= box.bottom) return false;
@@ -176,8 +191,8 @@ async function renderPoster() {
     );
     return ['draco', 'draco-wind', 'ferret'].includes(target?.label);
   }
-  const interactions = createInteractions(stage, apple, isClickable, () => pickLayer('green-apple'));
-  startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret });
+  const interactions = createInteractions(stage, apple, isClickable, () => pickLayer('green-apple'), canInteract);
+  startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret, wand });
   stage.classList.add('ready');
 }
 

@@ -142,7 +142,7 @@ function makeApple(apple, burst) {
   };
 }
 
-export function createInteractions(stage, apple, isClickable, pickApple) {
+export function createInteractions(stage, apple, isClickable, pickApple, canInteract) {
   const { ctx, clear } = makeCanvas();
   const pointer = { x: 0, y: 0, visible: false, hover: 0 };
   const pool = Array.from({ length: MAGIC.limit }, () => ({ life: 0 }));
@@ -226,6 +226,7 @@ export function createInteractions(stage, apple, isClickable, pickApple) {
   }
 
   stage.addEventListener('click', event => {
+    if (!canInteract()) return;
     if (apple.contains(event.target)) {
       if (!fruit.activate()) return;
       pickApple();
@@ -235,7 +236,7 @@ export function createInteractions(stage, apple, isClickable, pickApple) {
   apple.addEventListener('keydown', event => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
-    if (event.repeat || !fruit.activate()) return;
+    if (event.repeat || !canInteract() || !fruit.activate()) return;
     pickApple();
     const box = apple.getBoundingClientRect();
     clickBurst(box.left + box.width / 2, box.top + box.height / 2);
@@ -298,7 +299,8 @@ export function createInteractions(stage, apple, isClickable, pickApple) {
 
   return {
     update(dt) {
-      const appleHover = pointer.visible
+      const interactive = canInteract();
+      const appleHover = interactive && pointer.visible
         && apple.contains(document.elementFromPoint(pointer.x, pointer.y));
       fruit.hover(appleHover);
       fruit.update(dt);
@@ -309,7 +311,7 @@ export function createInteractions(stage, apple, isClickable, pickApple) {
       drawSparkles(dt);
       drawJuice(dt);
       if (pointer.visible) {
-        const target = appleHover || isClickable(pointer.x, pointer.y) ? 1 : 0;
+        const target = interactive && (appleHover || isClickable(pointer.x, pointer.y)) ? 1 : 0;
         pointer.hover += (target - pointer.hover) * Math.min(1, dt * 16);
         drawCursor(ctx, pointer.x, pointer.y, pointer.hover, reduced);
       }

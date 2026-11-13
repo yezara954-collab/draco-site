@@ -76,7 +76,7 @@ function route(t, down) {
   return [center[0] + swirl, center[1] + swirl * .13];
 }
 
-export function createFerret(sprites, debug, onPick) {
+export function createFerret(sprites, debug, onPick, canInteract) {
   const count = Math.max(1, Math.min(160, Math.floor(F.particleCount)));
   const low = makePose(sprites['ferret-low'], count);
   const raised = makePose(sprites['ferret-raised'], count);
@@ -168,7 +168,7 @@ export function createFerret(sprites, debug, onPick) {
   rest();
 
   animal.on('pointertap', () => {
-    if (age !== null) return;
+    if (age !== null || !canInteract()) return;
     age = 0;
     onPick();
     drawDebug();

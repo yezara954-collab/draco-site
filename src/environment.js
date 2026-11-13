@@ -200,7 +200,7 @@ function makeTwinkles() {
   }));
 }
 
-export function startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret }) {
+export function startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret, wand }) {
   const corridor = makeCorridorSweep();
   const stars = makeTwinkles();
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
@@ -216,11 +216,11 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
   let previousStarUpdate = -Infinity;
   let introSkipped = motionPreference.matches;
 
-  function updateMirror(time, enabled = true) {
+  function updateMirror(time, enabled = true, spellLight = 0) {
     const phase = time < mirror.delay ? -1 : (time - mirror.delay) % mirror.interval;
     const scanning = enabled && phase >= 0 && phase < mirror.duration;
-    sweep.visible = scanning;
-    bounce.visible = scanning;
+    sweep.visible = scanning || spellLight > 0;
+    bounce.visible = scanning || spellLight > 0;
     let illumination = 0;
     if (scanning) {
       const progress = phase / mirror.duration;
@@ -228,9 +228,13 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
       beam.alpha = mirror.strength;
       illumination = Math.sin(Math.PI * progress) ** 3;
     }
-    bounce.alpha = mirror.dracoStrength * illumination;
+    if (spellLight > 0) {
+      beam.x = glass.x + glass.width * .42;
+      beam.alpha = spellLight * 1.2;
+    }
+    bounce.alpha = mirror.dracoStrength * illumination + spellLight * .40;
     for (const reflection of reflections) {
-      reflection.alpha = mirror.reflectionBase + mirror.reflectionStrength * illumination;
+      reflection.alpha = mirror.reflectionBase + mirror.reflectionStrength * illumination + spellLight;
     }
   }
 
@@ -239,8 +243,13 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
     previousFrame = now;
     interactions.update(dt);
     request = requestAnimationFrame(draw);
+    if (wand.inNext) {
+      wand.update(dt);
+      return;
+    }
     const ferretMoved = ferret.update(dt);
     if (motionPreference.matches) {
+      wand.update(dt);
       if (ferretMoved) app.render();
       return;
     }
@@ -250,12 +259,15 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
     if (opening) corridor.reset();
     else corridor.update(introSkipped ? elapsed : elapsed - INTRO.duration);
     intro.update(elapsed);
-    updateMirror(elapsed);
-    const cranePhase = TURN * elapsed / ENVIRONMENT.crane.seconds;
-    crane.x = craneRestX + ENVIRONMENT.crane.drift * Math.sin(cranePhase / 2);
-    crane.y = craneRestY + ENVIRONMENT.crane.height * Math.sin(cranePhase);
-    crane.angle = ENVIRONMENT.crane.tilt * Math.sin(cranePhase - Math.PI / 4);
-    wind.update(elapsed, opening ? elapsed : null);
+    if (!wand.freezesCrane) {
+      const cranePhase = TURN * elapsed / ENVIRONMENT.crane.seconds;
+      crane.x = craneRestX + ENVIRONMENT.crane.drift * Math.sin(cranePhase / 2);
+      crane.y = craneRestY + ENVIRONMENT.crane.height * Math.sin(cranePhase);
+      crane.angle = ENVIRONMENT.crane.tilt * Math.sin(cranePhase - Math.PI / 4);
+    }
+    wand.update(dt);
+    updateMirror(elapsed, true, wand.mirrorLight);
+    wind.update(elapsed, opening ? elapsed : null, wand.gust);
 
     if (elapsed - previousStarUpdate >= 1 / 30) {
       const { darkLevel, peakSharpness, dotGrowth, flashColor } = ENVIRONMENT.stars;
@@ -277,6 +289,7 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
   function syncMotion() {
     interactions.setReduced(motionPreference.matches);
     ferret.setReduced(motionPreference.matches);
+    wand.setReduced(motionPreference.matches);
     if (motionPreference.matches || document.hidden) {
       if (request !== null) cancelAnimationFrame(request);
       request = null;
@@ -290,6 +303,8 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
         crane.x = craneRestX;
         crane.y = craneRestY;
         crane.angle = 0;
+        crane.scale.set(1);
+        crane.alpha = 1;
         wind.reset();
         for (const { element, colorProperty } of stars) {
           element.style.removeProperty('opacity');
