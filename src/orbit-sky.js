@@ -35,26 +35,7 @@ function glow(ctx, x, y, rx, ry, stops) {
   ctx.restore();
 }
 
-function makeMoon() {
-  const texture = canvas(256, 256);
-  const ctx = texture.getContext('2d');
-  ctx.translate(128, 128);
-  ctx.rotate(settings.moon.tilt);
-  const fill = ctx.createLinearGradient(-76, -90, 67, 89);
-  settings.moon.colors.forEach((color, i) => fill.addColorStop(i / 2, color));
-  ctx.shadowColor = settings.moon.colors[0];
-  ctx.shadowBlur = 4;
-  ctx.fillStyle = fill;
-  ctx.beginPath();
-  ctx.arc(0, 0, 96, 0, TAU);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.globalCompositeOperation = 'destination-out';
-  ctx.beginPath();
-  ctx.arc(55, -30, 91, 0, TAU);
-  ctx.fill();
-  return texture;
-}
+const moonUrl = new URL('./assets/nebula/moon.png', import.meta.url).href;
 
 const cloudUrls = {
   dense: new URL('./assets/nebula/cloud-dense.png', import.meta.url).href,
@@ -145,13 +126,13 @@ export function makeOrbitSky(screen) {
   const dust = Array.from({ length: settings.stars.dustCount }, () => ({
     x: random(), y: random(), phase: random() * TAU,
   }));
-  const moon = makeMoon();
+  const moon = new Image();
   const halo = canvas(128, 128);
   const haloColor = settings.moon.halo;
   glow(halo.getContext('2d'), 64, 64, 64, 64, [[0, haloColor + 'a8'], [.55, haloColor + '46'], [1, haloColor + '00']]);
   const cloudConfig = settings.cloud;
-  const clouds = Array.from({ length: cloudConfig.sequence.length * cloudConfig.repeats }, (_, i) => ({
-    type: cloudConfig.sequence[i % cloudConfig.sequence.length],
+  const clouds = cloudConfig.sequence.map(type => ({
+    type,
     phase: random() * TAU, period: range(cloudConfig.period, random),
     jitter: range([-cloudConfig.sizeJitter, cloudConfig.sizeJitter], random),
     offset: range([-cloudConfig.offset, cloudConfig.offset], random),
@@ -167,8 +148,9 @@ export function makeOrbitSky(screen) {
   const [silver, gold] = settings.rain.tail;
   const tailGradient = tailCtx.createLinearGradient(0, 0, 0, 192);
   tailGradient.addColorStop(0, gold + '00');
-  tailGradient.addColorStop(.39, gold + '50');
-  tailGradient.addColorStop(1, silver + 'eb');
+  tailGradient.addColorStop(.24, gold + '49');
+  tailGradient.addColorStop(.60, silver + 'c3');
+  tailGradient.addColorStop(1, silver);
   tailCtx.fillStyle = tailGradient;
   tailCtx.beginPath();
   tailCtx.moveTo(12, 0);
@@ -308,7 +290,7 @@ export function makeOrbitSky(screen) {
       length: range(rain.length) * scale, width: range(rain.lineWidth) * mix(.72, 1, scale),
       size: mix(...rain.starSize, depth) * mix(.77, 1, scale),
       alpha: mix(.44, .96, depth), spin: range(rain.spin) * (Math.random() < .5 ? -1 : 1),
-      rotation: Math.random() * TAU,
+      rotation: Math.random() * TAU, phase: Math.random() * TAU, twinkleRate: range(rain.twinkleRate),
       texture: goldStars[Math.floor(Math.random() * goldStars.length)],
     });
     if (Math.random() >= sparkConfig.chance) return;
@@ -328,13 +310,20 @@ export function makeOrbitSky(screen) {
       const fall = item.distance * mix(t, t * t, rain.acceleration);
       if (item.y + fall - item.length > h) continue;
       const alpha = item.alpha * clamp(t * 14) * (1 - t) ** .67;
+      const pulse = (.5 + .5 * Math.sin(item.phase + item.age * TAU * item.twinkleRate)) ** 4;
+      const shimmer = 1 + rain.twinkle * pulse;
       const length = Math.min(item.length, fall + 42 * scale);
       ctx.save();
       ctx.translate(item.x + Math.tan(item.angle) * fall, item.y + fall);
       ctx.rotate(-item.angle);
-      ctx.globalAlpha = alpha;
+      if (!low) {
+        const glowWidth = item.width * rain.glowWidth;
+        ctx.globalAlpha = clamp(alpha * rain.tailGlow * shimmer);
+        ctx.drawImage(tail, -glowWidth / 2, -length, glowWidth, length);
+      }
+      ctx.globalAlpha = clamp(alpha * rain.tailBrightness * shimmer);
       ctx.drawImage(tail, -item.width / 2, -length, item.width, length);
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha = clamp(alpha * rain.headBrightness * shimmer);
       ctx.rotate(item.rotation + item.age * item.spin);
       ctx.drawImage(item.texture, -item.size / 2, -item.size / 2, item.size, item.size);
       ctx.restore();
@@ -371,11 +360,14 @@ export function makeOrbitSky(screen) {
     const [ratio, min, max] = moonConfig.radius;
     const radius = Math.max(min, Math.min(max, Math.min(w, h) * ratio));
     const [mx, my] = w < 600 ? moonConfig.mobilePosition : moonConfig.position;
-    const size = radius * 256 / 96;
+    const size = radius * 2;
     ctx.globalAlpha = moonConfig.haloOpacity + moonConfig.breath * Math.sin(time * TAU / moonConfig.period);
     ctx.drawImage(halo, mx * w - radius * 2, my * h - radius * 2, radius * 4, radius * 4);
     ctx.globalAlpha = 1;
-    ctx.drawImage(moon, mx * w - size / 2, my * h - size / 2, size, size);
+    if (moon.naturalWidth) {
+      const height = size * moon.naturalHeight / moon.naturalWidth;
+      ctx.drawImage(moon, mx * w - size / 2, my * h - height / 2, size, height);
+    }
     const distantMist = textures.mist;
     if (distantMist) for (const [i, [x, y, widthRatio, opacity]] of cloudConfig.backdrop.entries()) {
       if (low && i % 2) continue;
@@ -405,6 +397,11 @@ export function makeOrbitSky(screen) {
       });
     }
   }
+
+  moon.addEventListener('load', () => {
+    if (!screen.hidden) paint(staticScene);
+  }, { once: true });
+  moon.src = moonUrl;
 
   for (const [type, url] of Object.entries(cloudUrls)) {
     loadCloud(url).then(texture => {

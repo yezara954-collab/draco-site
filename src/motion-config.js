@@ -153,7 +153,6 @@ export const ORBIT_SKY = {
   // 月亮位置为视口比例。半径依次为短边比例、最小像素、最大像素。
   moon: {
     position: [.105, .17], mobilePosition: [.17, .17], radius: [.078, 28, 79],
-    colors: ['#fff8d4', '#f5d887', '#cf9c51'], tilt: -.40,
     halo: '#eec675', haloOpacity: .12, breath: .035, period: 9,
   },
   // 星云外环。中心是视口比例，半径为原卡片宽度的倍数，倾角单位为度。
@@ -162,7 +161,11 @@ export const ORBIT_SKY = {
     tilt: -8, color: '#a2ebdf', backAlpha: .24, frontAlpha: .62,
   },
   cloud: {
-    sequence: ['dense', 'mist', 'mist', 'dense'], repeats: 3, // 云图顺序和重复组数
+    // 完整云序列，数组长度即云朵总数。原第 4、5 朵厚云前各插入一朵雾云。
+    sequence: [
+      'dense', 'mist', 'mist', 'mist', 'dense', 'mist', 'dense',
+      'mist', 'mist', 'dense', 'dense', 'mist', 'mist', 'dense',
+    ],
     spacing: 1, overlap: .30, offset: 1.8, startAngle: -172, // 间距倍率、重叠比例、错位和起始角（度）
     sizeJitter: .20, rotation: 8, depthScale: [.74, 1.08], // 尺寸、旋转随机变化和远近缩放
     denseOpacity: [.44, .82], mistOpacity: [.35, .60], overlapOpacity: .50,
@@ -179,8 +182,11 @@ export const ORBIT_SKY = {
   rain: {
     limit: 56, lowLimit: 30, interval: [.073, .116],
     burstInterval: [2, 4], burstCount: [6, 12], burstTime: 1,
-    starSize: [6, 22], length: [80, 300], lineWidth: [.8, 1.65],
+    starSize: [6, 22], length: [80, 300], lineWidth: [1.55, 2.65],
     distance: [230, 490], speed: [86, 160], acceleration: .13, angle: 35, angleJitter: 4,
+    // 拖尾亮度、柔光扩散宽度、星头亮度，以及闪烁幅度和每秒次数。
+    tailBrightness: 1.4, tailGlow: .40, glowWidth: 3.4,
+    headBrightness: 1.22, twinkle: .25, twinkleRate: [1.4, 3.7],
     spin: [.18, .75], tail: ['#fff9ea', '#f7dcaa'], gold: ['#fffef4', '#fff2d5', '#eac489'],
   }, // 流星容量、频率、尺寸、尾长、落距、速度、向左偏离垂直的角度与颜色
   sparks: {
