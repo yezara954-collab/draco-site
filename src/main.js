@@ -239,7 +239,7 @@ async function renderPoster() {
     );
     return target?.label === 'ferret' || poseLayers.includes(target?.label?.replace(/-wind$/, ''));
   }
-  const interactions = createInteractions(stage, apple, isClickable, () => pickLayer('green-apple'), canInteract, route.isClickable);
+  const interactions = createInteractions(stage, apple, isClickable, () => pickLayer('green-apple'), canInteract, route.isClickable, route.cursorMode);
   startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret, wand, poseDebug });
   stage.classList.add('ready');
 }

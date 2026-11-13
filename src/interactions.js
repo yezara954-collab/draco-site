@@ -19,7 +19,7 @@ function starPath(ctx, rays) {
   ctx.closePath();
 }
 
-function drawCursor(ctx, x, y, hover, reduced) {
+function drawCursor(ctx, x, y, hover, reduced, cursorMode) {
   const radius = MAGIC.size * (1 + (MAGIC.hoverScale - 1) * (reduced ? 0 : hover));
   ctx.save();
   ctx.translate(x, y);
@@ -29,6 +29,45 @@ function drawCursor(ctx, x, y, hover, reduced) {
   ctx.globalAlpha = .55 + .45 * hover;
   ctx.fillStyle = halo;
   ctx.fillRect(-radius * 2, -radius * 2, radius * 4, radius * 4);
+  if (cursorMode) {
+    const closed = cursorMode === 'grabbing';
+    ctx.scale(radius, radius);
+    ctx.strokeStyle = '#effffa';
+    ctx.fillStyle = closed ? '#60c9c2' : '#122526';
+    ctx.lineWidth = .15;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    if (closed) {
+      ctx.moveTo(-.78, -.15);
+      ctx.quadraticCurveTo(-.96, -.58, -.55, -.59);
+      ctx.lineTo(.35, -.67);
+      ctx.quadraticCurveTo(.78, -.65, .79, -.17);
+      ctx.lineTo(.63, .48);
+    } else {
+      ctx.moveTo(-.91, .07);
+      ctx.quadraticCurveTo(-.95, -.31, -.63, -.22);
+      ctx.lineTo(-.38, -.05);
+      ctx.lineTo(-.4, -.7);
+      ctx.quadraticCurveTo(-.22, -1.03, -.08, -.71);
+      ctx.lineTo(-.04, -.32);
+      ctx.lineTo(.07, -.87);
+      ctx.quadraticCurveTo(.23, -1.02, .33, -.75);
+      ctx.lineTo(.32, -.29);
+      ctx.lineTo(.45, -.67);
+      ctx.quadraticCurveTo(.65, -.83, .72, -.56);
+      ctx.lineTo(.69, -.19);
+      ctx.quadraticCurveTo(1.02, -.44, .91, .02);
+      ctx.lineTo(.63, .48);
+    }
+    ctx.lineTo(.56, .86);
+    ctx.lineTo(-.45, .86);
+    ctx.lineTo(-.53, .52);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
   ctx.rotate(-.12);
   ctx.scale(radius, radius);
   starPath(ctx, 8);
@@ -142,7 +181,7 @@ function makeApple(apple, burst) {
   };
 }
 
-export function createInteractions(stage, apple, isClickable, pickApple, canInteract, isRouteClickable) {
+export function createInteractions(stage, apple, isClickable, pickApple, canInteract, isRouteClickable, routeCursorMode) {
   const { ctx, clear } = makeCanvas();
   const pointer = { x: 0, y: 0, visible: false, hover: 0 };
   const pool = Array.from({ length: MAGIC.limit }, () => ({ life: 0 }));
@@ -314,7 +353,7 @@ export function createInteractions(stage, apple, isClickable, pickApple, canInte
         const target = (interactive && (appleHover || isClickable(pointer.x, pointer.y)))
           || isRouteClickable(pointer.x, pointer.y) ? 1 : 0;
         pointer.hover += (target - pointer.hover) * Math.min(1, dt * 16);
-        drawCursor(ctx, pointer.x, pointer.y, pointer.hover, reduced);
+        drawCursor(ctx, pointer.x, pointer.y, pointer.hover, reduced, routeCursorMode(pointer.x, pointer.y));
       }
     },
     setReduced(value) {

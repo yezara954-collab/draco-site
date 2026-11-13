@@ -56,38 +56,42 @@ function makeMoon() {
   return texture;
 }
 
-function makeCloud(index) {
-  const texture = canvas(384, 208);
-  const ctx = texture.getContext('2d');
-  const random = seeded(1921 + index * 83);
-  const [rim, shade, mid, core] = settings.cloud.colors;
-  const puffs = Array.from({ length: 15 }, (_, i) => {
-    const t = i / 14;
-    const curl = index === 4 ? -35 * Math.sin(t * Math.PI * 1.7) : -26 * Math.sin(t * Math.PI);
-    return [55 + t * 274, 119 + curl + range([-20, 21], random),
-      range([30, 65], random), range([27, 49], random)];
+const cloudUrls = {
+  dense: new URL('./assets/nebula/cloud-dense.png', import.meta.url).href,
+  mist: new URL('./assets/nebula/cloud-mist.png', import.meta.url).href,
+};
+
+function loadCloud(url) {
+  const image = new Image();
+  image.src = url;
+  return image.decode().then(() => {
+    const width = 384;
+    const height = Math.round(width * image.height / image.width);
+    const source = canvas(width, height);
+    const ctx = source.getContext('2d');
+    ctx.drawImage(image, 0, 0, width, height);
+    const { data } = ctx.getImageData(0, 0, width, height);
+    const edge = [];
+    for (let x = 0; x < width; x += 3) {
+      for (let y = height - 1; y >= 0; y--) {
+        if (data[(y * width + x) * 4 + 3] < 65) continue;
+        edge.push([x / width - .5, y / height - .5]);
+        break;
+      }
+    }
+    const { backTint, frontTint, moonTint } = settings.cloud;
+    const textures = [backTint, frontTint, moonTint].map(color => {
+      const texture = canvas(width, height);
+      const brush = texture.getContext('2d');
+      brush.drawImage(source, 0, 0);
+      brush.globalCompositeOperation = 'source-atop';
+      brush.globalAlpha = .24;
+      brush.fillStyle = color;
+      brush.fillRect(0, 0, width, height);
+      return texture;
+    });
+    return { textures, edge, aspect: height / width };
   });
-  for (const [x, y, rx, ry] of puffs) {
-    glow(ctx, x, y, rx * 1.15, ry * 1.12, [[0, shade + 'eb'], [.67, rim + 'ef'], [.85, rim + 'a8'], [1, rim + '00']]);
-  }
-  for (const [x, y, rx, ry] of puffs) {
-    glow(ctx, x, y - ry * .12, rx * .94, ry * .94,
-      [[0, mid + 'af'], [.55, shade + 'ab'], [.76, rim + '6e'], [1, rim + '00']]);
-    glow(ctx, x - rx * .14, y - ry * .23, rx * .57, ry * .53,
-      [[0, core + 'a1'], [.48, mid + '77'], [1, mid + '00']]);
-  }
-  const image = ctx.getImageData(0, 0, texture.width, texture.height);
-  const { data } = image;
-  for (let i = 0; i < data.length; i += 4) {
-    if (!data[i + 3]) continue;
-    const noise = (random() - .5) * settings.cloud.grain;
-    for (let channel = 0; channel < 3; channel++) data[i + channel] += noise;
-    const x = i / 4 % texture.width;
-    const y = Math.floor(i / 4 / texture.width);
-    data[i + 3] *= clamp(Math.min(x, texture.width - 1 - x, y, texture.height - 1 - y) / 13);
-  }
-  ctx.putImageData(image, 0, 0);
-  return texture;
 }
 
 function makeStar(index) {
@@ -120,22 +124,6 @@ function makeStar(index) {
   return texture;
 }
 
-function makeFlash() {
-  const texture = canvas(64, 64);
-  const ctx = texture.getContext('2d');
-  const color = settings.sparks.flashColor;
-  glow(ctx, 32, 32, 27, 27, [[0, color + 'ab'], [.37, color + '3d'], [1, color + '00']]);
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  for (const [i, [x, y]] of [[32, 3], [34, 30], [57, 32], [34, 34],
-    [32, 61], [30, 34], [7, 32], [30, 30]].entries()) {
-    if (i) ctx.lineTo(x, y);
-    else ctx.moveTo(x, y);
-  }
-  ctx.fill();
-  return texture;
-}
-
 const pool = count => Array.from({ length: count }, () => ({ active: false }));
 const slot = (items, limit) => items.find((item, index) => index < limit && !item.active);
 const trim = (items, limit) => items.slice(limit).forEach(item => { item.active = false; });
@@ -162,38 +150,127 @@ export function makeOrbitSky(screen) {
   const haloColor = settings.moon.halo;
   glow(halo.getContext('2d'), 64, 64, 64, 64, [[0, haloColor + 'a8'], [.55, haloColor + '46'], [1, haloColor + '00']]);
   const cloudConfig = settings.cloud;
-  const clouds = settings.clouds.map((config, i) => ({
-    ...config, texture: makeCloud(i), phase: random() * TAU, period: range(cloudConfig.period, random),
+  const clouds = Array.from({ length: cloudConfig.sequence.length * cloudConfig.repeats }, (_, i) => ({
+    type: cloudConfig.sequence[i % cloudConfig.sequence.length],
+    phase: random() * TAU, period: range(cloudConfig.period, random),
+    jitter: range([-cloudConfig.sizeJitter, cloudConfig.sizeJitter], random),
+    offset: range([-cloudConfig.offset, cloudConfig.offset], random),
+    flip: random() < .5 ? -1 : 1, tilt: range([-cloudConfig.rotation, cloudConfig.rotation], random) * DEG,
+    glints: Array.from({ length: cloudConfig.glints }, () => ({
+      x: range([-.29, .29], random), y: range([-.14, .16], random), phase: random() * TAU,
+    })),
   }));
+  const textures = {};
   const goldStars = Array.from({ length: 3 }, (_, i) => makeStar(i));
-  const flashTexture = makeFlash();
-  const tail = canvas(1, 128);
+  const tail = canvas(24, 192);
   const tailCtx = tail.getContext('2d');
-  const tailGradient = tailCtx.createLinearGradient(0, 0, 0, 128);
-  tailGradient.addColorStop(0, settings.rain.tail + '00');
-  tailGradient.addColorStop(.44, settings.rain.tail + '52');
-  tailGradient.addColorStop(1, settings.rain.tail + 'ca');
+  const [silver, gold] = settings.rain.tail;
+  const tailGradient = tailCtx.createLinearGradient(0, 0, 0, 192);
+  tailGradient.addColorStop(0, gold + '00');
+  tailGradient.addColorStop(.39, gold + '50');
+  tailGradient.addColorStop(1, silver + 'eb');
   tailCtx.fillStyle = tailGradient;
-  tailCtx.fillRect(0, 0, 1, 128);
+  tailCtx.beginPath();
+  tailCtx.moveTo(12, 0);
+  tailCtx.lineTo(24, 192);
+  tailCtx.lineTo(0, 192);
+  tailCtx.fill();
 
+  const mistGlow = canvas(128, 48);
+  glow(mistGlow.getContext('2d'), 64, 24, 64, 24, [[0, '#71edffb0'], [.5, '#45b1db55'], [1, '#45b1db00']]);
   const rain = settings.rain, sparkConfig = settings.sparks;
-  const meteors = pool(rain.limit), sparks = pool(sparkConfig.limit), flashes = pool(sparkConfig.flashLimit);
-  let w = 0, h = 0, card = 0, cx = 0, cy = 0, rx = 0, ry = 0;
-  let scale = 1, time = 0, slide = 0, nextDrop = .12, nextBurst = 1.25, nextFlash = .6;
+  const meteors = pool(rain.limit), sparks = pool(sparkConfig.limit);
+  const cardElements = [...screen.querySelectorAll('.orbit-card')];
+  const label = screen.querySelector('.orbit-label');
+  let w = 0, h = 0, cx = 0, cy = 0, rx = 0, ry = 0, trackLength = 0, arc = [];
+  let startPhase = 0;
+  let scale = 1, time = 0, slide = 0, spin = 0, inertia = 0, dragging = false;
+  let nextDrop = .06, nextBurst = 1.25;
   let burstLeft = 0, burstStep = 0, burstDrop = 0;
   let slow = 0, fast = 0, low = false, fpsTime = 1 / 60;
+  let staticScene = false;
   const tilt = settings.ring.tilt * DEG;
   const cos = Math.cos(tilt), sin = Math.sin(tilt);
 
   function placeClouds() {
-    for (const cloud of clouds) {
-      const a = (cloud.angle + slide + Math.sin(time * TAU / cloud.period + cloud.phase) * cloudConfig.drift) * DEG;
+    const count = low ? Math.min(cloudConfig.lowCount, clouds.length) : clouds.length;
+    const spacing = trackLength / count * cloudConfig.spacing / (1 - cloudConfig.overlap);
+    for (const [i, cloud] of clouds.entries()) {
+      const position = Math.round(i * count / clouds.length);
+      cloud.visible = !low || i === Math.round(position * clouds.length / count);
+      const turns = position / count + startPhase + (spin + slide + cloud.offset) / 360;
+      const sample = ((turns % 1 + 1) % 1) * (arc.length - 1);
+      const lower = Math.floor(sample);
+      cloud.angle = mix(arc[lower], arc[lower + 1], sample - lower);
+      const a = cloud.angle * DEG;
       const x = rx * Math.cos(a), y = ry * Math.sin(a);
+      cloud.depth = (1 + Math.sin(a)) / 2;
       cloud.x = cx + x * cos - y * sin;
       cloud.y = cy + x * sin + y * cos;
-      cloud.width = card * cloud.size[0];
-      cloud.height = card * cloud.size[1];
+      cloud.texture = textures[cloud.type];
+      const aspect = cloud.texture?.aspect ?? .44;
+      // Compensate for the projected height where clouds round the two ends.
+      const tangent = Math.atan2(ry * Math.cos(a), -rx * Math.sin(a)) + tilt - cloud.tilt;
+      const spread = Math.hypot(Math.cos(tangent), aspect * Math.sin(tangent));
+      cloud.width = Math.min(w * .43, spacing / Math.max(.73, spread))
+        * (1 + cloud.jitter) * mix(...cloudConfig.depthScale, cloud.depth);
+      cloud.height = cloud.width * aspect;
     }
+  }
+
+  function drawCloud(brush, cloud, layerAlpha) {
+    const { texture, width, height, depth } = cloud;
+    if (!texture || !cloud.visible || layerAlpha <= 0) return;
+    const mist = cloud.type === 'mist';
+    const opacity = mix(...(mist ? cloudConfig.mistOpacity : cloudConfig.denseOpacity), depth);
+    const pulse = mist ? Math.sin(cloud.phase + time * TAU / cloud.period) * cloudConfig.breath : 0;
+    const shade = clamp(depth + pulse * 2);
+    brush.save();
+    brush.translate(cloud.x, cloud.y);
+    brush.rotate(cloud.tilt);
+    brush.scale(cloud.flip, 1);
+    if (mist) {
+      brush.globalAlpha = cloudConfig.mistGlow * opacity * layerAlpha;
+      brush.drawImage(mistGlow, -width * .54, height * .03, width * 1.08, height * .65);
+    }
+    brush.globalAlpha = Math.max(mist ? cloudConfig.mistOpacity[0] : 0,
+      Math.min(mist ? cloudConfig.mistOpacity[1] : 1, opacity + pulse)) * layerAlpha;
+    brush.drawImage(texture.textures[shade < .48 ? 0 : 1], -width / 2, -height / 2, width, height);
+    const [moonX, moonY] = w < 600 ? settings.moon.mobilePosition : settings.moon.position;
+    const moonlight = clamp(1 - Math.hypot(cloud.x / w - moonX, cloud.y / h - moonY) / .58);
+    if (moonlight > 0) {
+      brush.globalAlpha *= .36 * moonlight;
+      brush.drawImage(texture.textures[2], -width / 2, -height / 2, width, height);
+    }
+    if (mist) {
+      brush.fillStyle = '#d8fbff';
+      for (let i = 0; i < (low ? cloudConfig.lowGlints : cloud.glints.length); i++) {
+        const point = cloud.glints[i];
+        brush.globalAlpha = opacity * layerAlpha * (.12 + .62 * (.5 + .5 * Math.sin(time * 2 + point.phase)) ** 5);
+        brush.fillRect(point.x * width, point.y * height, 1.35, 1.35);
+      }
+    }
+    brush.restore();
+  }
+
+  function softenForeground() {
+    const origin = screen.getBoundingClientRect();
+    frontCtx.save();
+    frontCtx.globalCompositeOperation = 'destination-out';
+    frontCtx.globalAlpha = 1 - cloudConfig.overlapOpacity;
+    frontCtx.beginPath();
+    for (const element of cardElements) {
+      const box = element.getBoundingClientRect();
+      frontCtx.roundRect(box.x - origin.x, box.y - origin.y, box.width, box.height, 9);
+    }
+    frontCtx.fill();
+    const box = label.getBoundingClientRect();
+    if (box.width && box.height) {
+      frontCtx.globalAlpha = .66;
+      glow(frontCtx, box.x - origin.x + box.width / 2, box.y - origin.y + box.height / 2,
+        box.width * .85, box.height * .86, [[0, '#fff'], [.56, '#fff'], [1, '#fff0']]);
+    }
+    frontCtx.restore();
   }
 
   function ring(brush, foreground) {
@@ -213,21 +290,26 @@ export function makeOrbitSky(screen) {
   function spawn() {
     const meteor = slot(meteors, low ? rain.lowLimit : rain.limit);
     if (!meteor) return;
-    const source = clouds[Math.floor(Math.random() * clouds.length)];
-    const across = range([-.43, .43]);
-    const depth = Math.random();
-    const x = source.x + across * source.width;
-    const y = source.y + source.height * (.29 - across ** 2 * .46) + across * source.width * Math.sin(source.tilt);
+    const sources = clouds.filter(cloud => cloud.visible && cloud.type === 'dense' && cloud.texture?.edge.length && cloud.x > w * .13);
+    const source = sources[Math.floor(Math.random() * sources.length)];
+    if (!source) return;
+    const edge = source.texture.edge;
+    const [u, v] = edge[Math.floor(range([.08, .92]) * edge.length)];
+    const localX = u * source.width * source.flip;
+    const localY = v * source.height;
+    const x = source.x + localX * Math.cos(source.tilt) - localY * Math.sin(source.tilt);
+    const y = source.y + localX * Math.sin(source.tilt) + localY * Math.cos(source.tilt);
+    const depth = clamp(source.depth * .66 + Math.random() * .34);
     const distance = mix(...rain.distance, depth) * scale * range([.85, 1]);
     const speed = mix(...rain.speed, depth) * scale * range([.92, 1.08]);
-    const angle = range([-rain.tilt, rain.tilt]) * DEG;
+    const angle = -range([rain.angle - rain.angleJitter, rain.angle + rain.angleJitter]) * DEG;
     Object.assign(meteor, {
       active: true, x, y, age: 0, life: distance / speed, distance, angle,
       length: range(rain.length) * scale, width: range(rain.lineWidth) * mix(.72, 1, scale),
       size: mix(...rain.starSize, depth) * mix(.77, 1, scale),
       alpha: mix(.44, .96, depth), spin: range(rain.spin) * (Math.random() < .5 ? -1 : 1),
       rotation: Math.random() * TAU,
-      texture: Math.random() < rain.dotChance ? null : goldStars[Math.floor(Math.random() * goldStars.length)],
+      texture: goldStars[Math.floor(Math.random() * goldStars.length)],
     });
     if (Math.random() >= sparkConfig.chance) return;
     const spark = slot(sparks, low ? sparkConfig.lowLimit : sparks.length);
@@ -253,13 +335,8 @@ export function makeOrbitSky(screen) {
       ctx.globalAlpha = alpha;
       ctx.drawImage(tail, -item.width / 2, -length, item.width, length);
       ctx.globalAlpha = alpha;
-      if (item.texture) {
-        ctx.rotate(item.rotation + item.age * item.spin);
-        ctx.drawImage(item.texture, -item.size / 2, -item.size / 2, item.size, item.size);
-      } else {
-        ctx.fillStyle = rain.tail;
-        ctx.fillRect(-.65, -.65, 1.3, 1.3);
-      }
+      ctx.rotate(item.rotation + item.age * item.spin);
+      ctx.drawImage(item.texture, -item.size / 2, -item.size / 2, item.size, item.size);
       ctx.restore();
     }
     for (const item of sparks) {
@@ -270,18 +347,13 @@ export function makeOrbitSky(screen) {
       ctx.fillStyle = item.color;
       ctx.fillRect(item.x + fall * Math.tan(item.angle), item.y + fall, item.size, item.size);
     }
-    for (const item of flashes) {
-      if (!item.active) continue;
-      ctx.globalAlpha = Math.sin(Math.PI * item.age / item.life) ** 1.5;
-      ctx.drawImage(flashTexture, item.x - item.size / 2, item.y - item.size / 2, item.size, item.size);
-    }
   }
 
   function paint(staticScene) {
     if (!w || !h) return;
     ctx.globalAlpha = frontCtx.globalAlpha = 1;
     ctx.clearRect(0, 0, w, h);
-    if (debug) frontCtx.clearRect(0, 0, w, h);
+    frontCtx.clearRect(0, 0, w, h);
     ctx.fillStyle = settings.stars.color;
     for (let i = 0; i < (low ? settings.stars.lowCount : stars.length); i++) {
       const star = stars[i];
@@ -304,35 +376,50 @@ export function makeOrbitSky(screen) {
     ctx.drawImage(halo, mx * w - radius * 2, my * h - radius * 2, radius * 4, radius * 4);
     ctx.globalAlpha = 1;
     ctx.drawImage(moon, mx * w - size / 2, my * h - size / 2, size, size);
+    const distantMist = textures.mist;
+    if (distantMist) for (const [i, [x, y, widthRatio, opacity]] of cloudConfig.backdrop.entries()) {
+      if (low && i % 2) continue;
+      const width = w * widthRatio;
+      const height = width * distantMist.aspect;
+      ctx.globalAlpha = opacity;
+      ctx.drawImage(distantMist.textures[0], x * w - width / 2, y * h - height / 2, width, height);
+    }
     ring(ctx, false);
     if (!staticScene) drawRain();
     for (const cloud of clouds) {
-      ctx.save();
-      ctx.globalAlpha = cloudConfig.opacity + cloudConfig.breath * Math.sin(cloud.phase + time * TAU / cloud.period);
-      ctx.translate(cloud.x, cloud.y);
-      ctx.rotate(cloud.tilt);
-      ctx.drawImage(cloud.texture, -cloud.width / 2, -cloud.height / 2, cloud.width, cloud.height);
-      ctx.restore();
+      const frontWeight = clamp((cloud.depth - .43) / .14);
+      drawCloud(ctx, cloud, 1 - frontWeight);
+      drawCloud(frontCtx, cloud, frontWeight);
     }
+    softenForeground();
+    ring(frontCtx, true);
     if (debug) {
-      ring(frontCtx, true);
       frontCtx.fillStyle = '#d5fff6';
       frontCtx.font = '12px system-ui';
       clouds.forEach((cloud, index) => {
+        if (!cloud.visible) return;
         frontCtx.beginPath();
         frontCtx.arc(cloud.x, cloud.y, 3, 0, TAU);
         frontCtx.fill();
-        frontCtx.fillText(`${index + 1} · ${cloud.angle}°`, cloud.x + 7, cloud.y - 7);
+        frontCtx.fillText(`${index + 1} ${cloud.type} · ${Math.round(cloud.angle)}°`, cloud.x + 7, cloud.y - 7);
       });
     }
   }
 
+  for (const [type, url] of Object.entries(cloudUrls)) {
+    loadCloud(url).then(texture => {
+      textures[type] = texture;
+      placeClouds();
+      if (!screen.hidden) paint(staticScene);
+    }).catch(error => console.warn('Nebula texture unavailable:', type, error));
+  }
+
   return {
     fit(width, height, cardWidth, reduced) {
-      if (w !== width || h !== height || card !== cardWidth) {
+      staticScene = reduced;
+      if (w !== width || h !== height) {
         w = width;
         h = height;
-        card = cardWidth;
         scale = Math.min(1, Math.max(.57, w / 800));
         const { maxDpr, maxPixels } = settings.quality;
         const dpr = Math.min(window.devicePixelRatio || 1, maxDpr, Math.sqrt(maxPixels / (w * h)));
@@ -344,14 +431,48 @@ export function makeOrbitSky(screen) {
         const config = settings.ring;
         cx = w * config.center[0];
         cy = h * config.center[1];
-        rx = Math.min(card * config.radius[0], w * config.maxWidth / 2);
-        ry = Math.min(card * config.radius[1], h * config.maxHeight / 2);
-        if (!debug) ring(frontCtx, true);
+        rx = Math.min(cardWidth * config.radius[0], w * config.maxWidth / 2);
+        ry = Math.min(cardWidth * config.radius[1], h * config.maxHeight / 2);
+        const samples = 240;
+        const distances = [0];
+        trackLength = 0;
+        for (let i = 1; i <= samples; i++) {
+          const angle = (i - .5) * TAU / samples;
+          trackLength += Math.hypot(rx * Math.sin(angle), ry * Math.cos(angle)) * TAU / samples;
+          distances.push(trackLength);
+        }
+        let segment = 1;
+        arc = distances.map((_, i) => {
+          const distance = i * trackLength / samples;
+          while (segment < samples && distances[segment] < distance) segment++;
+          const fraction = (distance - distances[segment - 1]) / (distances[segment] - distances[segment - 1]);
+          return (segment - 1 + fraction) * 360 / samples;
+        });
+        const origin = (cloudConfig.startAngle % 360 + 360) % 360;
+        const start = origin * samples / 360;
+        startPhase = mix(distances[Math.floor(start)], distances[Math.ceil(start)], start % 1) / trackLength;
       }
       placeClouds();
       paint(reduced);
     },
+    grab() {
+      dragging = true;
+      inertia = 0;
+    },
+    drag(degrees) {
+      spin = (spin + degrees) % 360;
+    },
+    release(velocity) {
+      dragging = false;
+      const limit = settings.drag.maxSpeed;
+      inertia = Math.max(-limit, Math.min(limit, velocity));
+    },
     update(dt, rawDt, turnVelocity) {
+      staticScene = false;
+      if (!dragging) {
+        spin = (spin + (settings.drag.idleSpeed + inertia) * dt) % 360;
+        inertia *= Math.exp(-dt * settings.drag.damping);
+      }
       const quality = settings.quality;
       fpsTime = mix(fpsTime, rawDt, Math.min(1, dt * 2));
       slow = fpsTime > 1 / quality.lowFps ? slow + dt : 0;
@@ -367,7 +488,7 @@ export function makeOrbitSky(screen) {
       slide = mix(slide, target, 1 - Math.exp(-dt * (target ? cloudConfig.response : cloudConfig.settle)));
       placeClouds();
 
-      for (const items of [meteors, sparks, flashes]) for (const item of items) {
+      for (const items of [meteors, sparks]) for (const item of items) {
         if (!item.active) continue;
         item.age += dt;
         if (item.age >= item.life) item.active = false;
@@ -387,20 +508,13 @@ export function makeOrbitSky(screen) {
         burstLeft--;
         burstDrop += burstStep;
       }
-      if (time >= nextFlash) {
-        const flash = slot(flashes, low ? 1 : flashes.length);
-        if (flash) {
-          const source = clouds[Math.floor(Math.random() * clouds.length)];
-          Object.assign(flash, { active: true, age: 0, life: sparkConfig.flashLife,
-            x: source.x + range([-.46, .46]) * source.width, y: source.y + range([.32, .84]) * source.height,
-            size: range([19, 39]) * mix(.73, 1, scale) });
-        }
-        nextFlash = time + range(sparkConfig.flashEvery) * (low ? 1.55 : 1);
-      }
       paint(false);
     },
     freeze() {
-      for (const items of [meteors, sparks, flashes]) trim(items, 0);
+      staticScene = true;
+      dragging = false;
+      inertia = 0;
+      for (const items of [meteors, sparks]) trim(items, 0);
       slide = 0;
       burstLeft = 0;
       placeClouds();

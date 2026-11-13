@@ -194,3 +194,6 @@
 }
 
 .orbit-sky-front { z-index: 1; }
+
+.orbit-interaction.is-grabbable { cursor: grab; }
+.orbit-interaction.is-grabbing { cursor: grabbing; }

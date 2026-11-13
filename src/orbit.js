@@ -1,5 +1,5 @@
 import { makeOrbitSky } from './orbit-sky.js';
-import { ORBIT as settings } from './motion-config.js';
+import { ORBIT as settings, ORBIT_SKY } from './motion-config.js';
 
 const HOME = '#';
 const ORBIT = '#/next';
@@ -117,6 +117,9 @@ export function makeNextRoute(stage) {
   let centerX = 0, centerY = 0, trackOffset = 0;
   let tiltX = 0, tiltY = 0, targetX = 0, targetY = 0;
   let drag;
+  let cloudDrag;
+  const dragSettings = ORBIT_SKY.drag;
+  const isControl = target => target?.closest('.orbit-card, .orbit-arrow, .orbit-back');
   let suppressClick = false;
   const enterEnd = settings.riseTime + (cards.length - 1) * settings.stagger;
 
@@ -217,6 +220,7 @@ export function makeNextRoute(stage) {
       setIndex(sub);
       childTitle.textContent = sections[sub].name;
     }
+    if (destination !== 'orbit' && cloudDrag) finishCloudDrag();
     page = destination;
     stage.inert = Boolean(page);
     stage.classList.toggle('routed-away', Boolean(page));
@@ -254,20 +258,67 @@ export function makeNextRoute(stage) {
   interaction.addEventListener('pointerdown', event => {
     if (!event.isPrimary || event.button !== 0 || event.target.closest('.orbit-arrow')) return;
     suppressClick = false;
+    drag = null;
+    if (!isControl(event.target)) {
+      if (!sky || reduced.matches) return;
+      cloudDrag = { id: event.pointerId, x: event.clientX, samples: [[event.timeStamp, event.clientX]] };
+      interaction.setPointerCapture(event.pointerId);
+      interaction.classList.add('is-grabbing');
+      sky.grab();
+      return;
+    }
     drag = { id: event.pointerId, x: event.clientX, y: event.clientY };
   });
-  window.addEventListener('pointerup', event => {
-    if (drag?.id !== event.pointerId) return;
+  function finishCloudDrag(event) {
+    if (!cloudDrag) return;
+    const { id, samples } = cloudDrag;
+    const last = samples.at(-1);
+    const first = samples[0];
+    const seconds = (last[0] - first[0]) / 1000;
+    const recent = event && event.timeStamp - last[0] < dragSettings.releaseWindow * 1000;
+    const velocity = recent && seconds > 0
+      ? (last[1] - first[1]) / interaction.clientWidth * dragSettings.sensitivity / seconds : 0;
+    cloudDrag = null;
+    sky?.release(velocity);
+    interaction.classList.remove('is-grabbing');
+    if (interaction.hasPointerCapture(id)) interaction.releasePointerCapture(id);
+  }
+
+  function swipeCard(event) {
+    if (drag?.id !== event.pointerId || drag.swiped || page !== 'orbit') return;
     const dx = event.clientX - drag.x;
     const dy = event.clientY - drag.y;
-    drag = null;
-    if (page !== 'orbit' || Math.abs(dx) < settings.swipeDistance || Math.abs(dx) <= Math.abs(dy)) return;
+    if (Math.abs(dx) < settings.swipeDistance || Math.abs(dx) <= Math.abs(dy)) return;
+    drag.swiped = true;
     suppressClick = true;
     shift(dx < 0 ? 1 : -1);
+  }
+
+  window.addEventListener('pointermove', event => {
+    swipeCard(event);
+    if (cloudDrag?.id !== event.pointerId) return;
+    const { samples, x } = cloudDrag;
+    sky.drag((event.clientX - x) / interaction.clientWidth * dragSettings.sensitivity);
+    cloudDrag.x = event.clientX;
+    samples.push([event.timeStamp, event.clientX]);
+    while (samples.length > 2 && event.timeStamp - samples[0][0] > dragSettings.releaseWindow * 1000) samples.shift();
   });
-  window.addEventListener('pointercancel', () => { drag = null; });
-  window.addEventListener('blur', () => {
+  interaction.addEventListener('lostpointercapture', event => {
+    if (cloudDrag?.id === event.pointerId) finishCloudDrag();
+    if (drag?.id === event.pointerId) drag = null;
+  });
+  window.addEventListener('pointerup', event => {
+    if (cloudDrag?.id === event.pointerId) finishCloudDrag(event);
+    if (drag?.id !== event.pointerId) return;
+    swipeCard(event);
     drag = null;
+  });
+  window.addEventListener('pointercancel', event => {
+    if (cloudDrag?.id === event.pointerId) finishCloudDrag();
+    if (drag?.id === event.pointerId) drag = null;
+  });
+  window.addEventListener('blur', () => {
+    finishCloudDrag();
     targetX = targetY = 0;
   });
   interaction.addEventListener('click', event => {
@@ -285,6 +336,7 @@ export function makeNextRoute(stage) {
   interaction.addEventListener('pointerleave', () => { targetX = targetY = 0; });
   window.addEventListener('hashchange', sync);
   reduced.addEventListener('change', () => {
+    interaction.classList.toggle('is-grabbable', !reduced.matches);
     if (!reduced.matches) return;
     tiltX = tiltY = targetX = targetY = 0;
     entrance = Infinity;
@@ -293,9 +345,11 @@ export function makeNextRoute(stage) {
       angle = index * step;
       rotation = null;
     }
+    finishCloudDrag();
     sky?.freeze();
     if (page === 'orbit') paint();
   });
+  interaction.classList.toggle('is-grabbable', !reduced.matches);
   routeBack(screen.querySelector('.orbit-back'), HOME, HOME, sync);
   routeBack(child.querySelector('.orbit-back'), ORBIT, ORBIT, sync);
   new ResizeObserver(fit).observe(interaction);
@@ -308,6 +362,12 @@ export function makeNextRoute(stage) {
     },
     isClickable(x, y) {
       return Boolean(page && document.elementFromPoint(x, y)?.closest('.orbit-card, .orbit-arrow, .orbit-back'));
+    },
+    cursorMode(x, y) {
+      if (page !== 'orbit' || reduced.matches) return '';
+      if (cloudDrag) return 'grabbing';
+      const target = document.elementFromPoint(x, y);
+      return target && interaction.contains(target) && !isControl(target) ? 'grab' : '';
     },
     update(dt) {
       if (page !== 'orbit' || !dt) return;

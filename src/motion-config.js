@@ -161,32 +161,32 @@ export const ORBIT_SKY = {
     center: [.50, .52], radius: [1.90, .82], maxWidth: .78, maxHeight: .58,
     tilt: -8, color: '#a2ebdf', backAlpha: .24, frontAlpha: .62,
   },
-  // 从左侧、左下、右下、右侧到右上。角度沿椭圆，宽高按卡片宽度换算。
-  clouds: [
-    { angle: 176, size: [.76, .44], tilt: -.22 },
-    { angle: 131, size: [1.02, .40], tilt: -.17 },
-    { angle: 56, size: [.91, .38], tilt: .07 },
-    { angle: 11, size: [.69, .39], tilt: -.15 },
-    { angle: -40, size: [.56, .35], tilt: .21 },
-  ],
   cloud: {
-    colors: ['#082d35', '#146772', '#39b7b9', '#9ef5e4'],
-    opacity: .84, breath: .13, period: [6.8, 11.2], drift: 2.1,
-    grain: 15, turnDegrees: 10, response: 7, settle: 2.35,
-  }, // 星云的色阶、呼吸、环上漂动和转动联动
+    sequence: ['dense', 'mist', 'mist', 'dense'], repeats: 3, // 云图顺序和重复组数
+    spacing: 1, overlap: .30, offset: 1.8, startAngle: -172, // 间距倍率、重叠比例、错位和起始角（度）
+    sizeJitter: .20, rotation: 8, depthScale: [.74, 1.08], // 尺寸、旋转随机变化和远近缩放
+    denseOpacity: [.44, .82], mistOpacity: [.35, .60], overlapOpacity: .50,
+    backTint: '#a1dce7', frontTint: '#e1f9ff', moonTint: '#f9e5b4',
+    period: [6.8, 11.2], breath: .06, mistGlow: .12, glints: 5, lowGlints: 2,
+    lowCount: 8, turnDegrees: 10, response: 7, settle: 2.35, // 低帧率云数、卡牌联动角度及回落
+    backdrop: [
+      [.23, .39, .30, .16], [.50, .31, .38, .19], [.76, .39, .32, .20], [.57, .63, .39, .15],
+    ], // 远雾的横纵中心、宽度（屏宽比例）、透明度
+  },
+  drag: {
+    sensitivity: 330, maxSpeed: 300, damping: 2.05, idleSpeed: 1.4, releaseWindow: .095,
+  }, // 拖过一屏的角度、最大惯性速度（度/秒）、阻尼、匀速和松手速度采样窗口
   rain: {
-    limit: 52, lowLimit: 30, interval: [.16, .27],
+    limit: 56, lowLimit: 30, interval: [.073, .116],
     burstInterval: [2, 4], burstCount: [6, 12], burstTime: 1,
-    starSize: [6, 20], length: [60, 250], lineWidth: [1, 2],
-    distance: [150, 450], speed: [58, 155], acceleration: .18, tilt: 5,
-    dotChance: .33, spin: [.25, 1.15], tail: '#f1f6ff',
-    gold: ['#fff5b4', '#f6cc67', '#c48229'],
-  }, // 流星容量、间隔、星雨颗数、大小、尾长、落距、速度、倾斜角和颜色
+    starSize: [6, 22], length: [80, 300], lineWidth: [.8, 1.65],
+    distance: [230, 490], speed: [86, 160], acceleration: .13, angle: 35, angleJitter: 4,
+    spin: [.18, .75], tail: ['#fff9ea', '#f7dcaa'], gold: ['#fffef4', '#fff2d5', '#eac489'],
+  }, // 流星容量、频率、尺寸、尾长、落距、速度、向左偏离垂直的角度与颜色
   sparks: {
-    limit: 64, lowLimit: 27, size: [2, 5], colors: ['#6de7e8', '#f2ffff'],
-    speed: [.52, .78], chance: .86, flashEvery: [.78, 1.23], flashLife: .4,
-    flashLimit: 3, flashColor: '#f3ffff',
-  }, // 像素闪点和十字闪光的容量、大小、速度、颜色与节奏
+    limit: 26, lowLimit: 11, size: [.7, 2.1], colors: ['#d9fbff', '#fff1cc'],
+    speed: [.65, .9], chance: .42,
+  }, // 点状碎星的容量、尺寸、颜色和相对速度
   stars: { count: 122, lowCount: 57, dustCount: 14, color: '#e3f5ef', period: [3.8, 10], dustSpeed: 3 },
   quality: { maxDpr: 1.25, maxPixels: 1250000, lowFps: 43, recoverFps: 55, lowSeconds: 3, recoverSeconds: 8 },
   // 星空数量，以及画布像素上限和持续低帧率降级／恢复阈值。
