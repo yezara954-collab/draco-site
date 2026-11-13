@@ -256,12 +256,12 @@ export function makeOrbitSky(screen) {
   }
 
   function ring(brush, foreground) {
-    const { color, frontAlpha, backAlpha } = settings.ring;
+    const { color, frontAlpha, backAlpha, glowColor, frontGlow, backGlow } = settings.ring;
     brush.save();
     brush.globalAlpha = debug ? .9 : foreground ? frontAlpha : backAlpha;
     brush.strokeStyle = color;
-    brush.shadowColor = color;
-    brush.shadowBlur = foreground ? 6 : 3;
+    brush.shadowColor = glowColor;
+    brush.shadowBlur = foreground ? frontGlow : backGlow;
     brush.lineWidth = debug ? 1.5 : 1;
     brush.beginPath();
     brush.ellipse(cx, cy, rx, ry, tilt, foreground ? 0 : Math.PI, foreground ? Math.PI : TAU);

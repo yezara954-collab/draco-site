@@ -158,7 +158,8 @@ export const ORBIT_SKY = {
   // 星云外环。中心是视口比例，半径为原卡片宽度的倍数，倾角单位为度。
   ring: {
     center: [.50, .52], radius: [1.90, .82], maxWidth: .78, maxHeight: .58,
-    tilt: -8, color: '#a2ebdf', backAlpha: .24, frontAlpha: .62,
+    tilt: -8, color: '#f5f5f2', backAlpha: .20, frontAlpha: .46,
+    glowColor: '#ffffff55', backGlow: 2, frontGlow: 4, // 外环柔白描边及前后光晕半径
   },
   cloud: {
     // 完整云序列，数组长度即云朵总数。原第 4、5 朵厚云前各插入一朵雾云。
