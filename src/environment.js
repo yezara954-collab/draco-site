@@ -200,7 +200,7 @@ function makeTwinkles() {
   }));
 }
 
-export function startEnvironment(app, { glass, lighting, reflections, crane, wind, intro }) {
+export function startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions }) {
   const corridor = makeCorridorSweep();
   const stars = makeTwinkles();
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
@@ -235,8 +235,13 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
   }
 
   function draw(now) {
-    if (previousFrame !== null) elapsed += (now - previousFrame) / 1000;
+    const dt = previousFrame === null ? 0 : (now - previousFrame) / 1000;
     previousFrame = now;
+    interactions.update(dt);
+    request = requestAnimationFrame(draw);
+    if (motionPreference.matches) return;
+
+    elapsed += dt;
     const opening = !introSkipped && elapsed < INTRO.duration;
     if (opening) corridor.reset();
     else corridor.update(introSkipped ? elapsed : elapsed - INTRO.duration);
@@ -263,14 +268,15 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
     }
 
     app.render();
-    request = requestAnimationFrame(draw);
   }
 
   function syncMotion() {
+    interactions.setReduced(motionPreference.matches);
     if (motionPreference.matches || document.hidden) {
       if (request !== null) cancelAnimationFrame(request);
       request = null;
       previousFrame = null;
+      if (document.hidden) interactions.hidePointer();
       if (motionPreference.matches) {
         introSkipped = true;
         intro.finish();
@@ -289,7 +295,8 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
         elapsed = 0;
         app.render();
       }
-    } else if (request === null) {
+    }
+    if (!document.hidden && request === null) {
       request = requestAnimationFrame(draw);
     }
   }

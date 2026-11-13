@@ -7,6 +7,7 @@ import { makeCraneRig, makeMirrorLighting, makeReflection, startEnvironment } fr
 
 import { createWind } from './wind.js';
 import { makeIntro } from './intro.js';
+import { createInteractions } from './interactions.js';
 
 const WIDTH = 1600;
 const HEIGHT = 1000;
@@ -167,13 +168,16 @@ async function renderPoster() {
   await typesetTitle();
   const intro = makeIntro(stage);
   const apple = document.querySelector('#green-apple');
-  apple.addEventListener('click', () => pickLayer('green-apple'));
-  apple.addEventListener('keydown', event => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    pickLayer('green-apple');
-  });
-  startEnvironment(app, { glass, lighting, reflections, crane, wind, intro });
+  function isClickable(x, y) {
+    const box = app.canvas.getBoundingClientRect();
+    if (x < box.left || x >= box.right || y < box.top || y >= box.bottom) return false;
+    const target = app.renderer.events.rootBoundary.hitTest(
+      (x - box.left) * WIDTH / box.width, (y - box.top) * HEIGHT / box.height,
+    );
+    return ['draco', 'draco-wind', 'ferret-low', 'ferret-raised'].includes(target?.label);
+  }
+  const interactions = createInteractions(stage, apple, isClickable, () => pickLayer('green-apple'));
+  startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions });
   stage.classList.add('ready');
 }
 

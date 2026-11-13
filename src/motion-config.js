@@ -34,3 +34,34 @@ export const INTRO = {
   glint: [4.32, 4.76],       // 苹果高光闪过的时间段
   cueDuration: 6,            // 开场结束后，三处星形提示的时长
 };
+
+// 粒子速度、距离和尺寸以屏幕像素为单位，时间单位为秒。
+export const MAGIC_CURSOR = {
+  limit: 100,               // 拖尾和点击粒子共用的池容量
+  size: 8,                  // 四角星光标的半径
+  hoverScale: 1.26,         // 可点击区域的光标放大倍率
+  trailSpacing: 9,          // 鼠标每移动多少像素留下一个粒子
+  trailLife: .48,           // 拖尾消失所需时间
+  burstCount: 11,           // 每次点击的小光点数量
+  burstLife: .46,           // 点击光点消失所需时间
+  burstSpeed: [21, 63],     // 点击光点飞散速度范围
+  reducedLife: .26,         // 减少动态效果时的原地淡出时长
+  colors: ['#eafffd', '#aff3e9', '#fff1c0'], // 青白、浅青、淡金
+};
+
+export const APPLE_JUICE = {
+  squashTime: .18,          // 挤压时长
+  squashX: 1.14,            // 挤压时横向撑开的倍率
+  squashY: .80,             // 挤压时纵向压扁的倍率
+  regrowAt: 2.5,            // 从点击起算，几秒后开始长回
+  regrowTime: .62,          // 长回与轻弹的时长
+  reducedFade: .22,         // 减少动态效果时，两次交叉淡化的时长
+  hoverTilt: 4,             // 悬停时左右摇摆的最大角度
+  hoverGlow: .24,           // 悬停高光强度
+  dropCount: 25,            // 果汁水珠数量
+  dropLife: [ .62, 1.30 ],   // 水珠存活时间范围
+  dropSpeed: [55, 175],     // 水珠飞散速度范围
+  dropSize: [1.4, 4.2],     // 水珠半径范围
+  gravity: 245,             // 水珠向下加速度
+  colors: ['#a7ed85', '#d2ff9e', '#ffe09b'], // 青绿为主，少量金色
+};
