@@ -8,6 +8,7 @@ import { makeCraneRig, makeMirrorLighting, makeReflection, startEnvironment } fr
 import { createWind } from './wind.js';
 import { makeIntro } from './intro.js';
 import { createInteractions } from './interactions.js';
+import { createFerret } from './ferret.js';
 
 const WIDTH = 1600;
 const HEIGHT = 1000;
@@ -136,15 +137,15 @@ async function renderPoster() {
   const entries = await Promise.all(Object.entries(assetUrls).map(async ([name, url]) =>
     [name, makeSprite(name, await Assets.load(url))]));
   const sprites = Object.fromEntries(entries);
-  // The crouching pose is available as its own layer. The reference shows only the raised pose.
-  sprites['ferret-low'].visible = false;
+  const debugView = new URLSearchParams(location.search).get('debug');
+  const ferret = createFerret(sprites, debugView === 'ferret', () => pickLayer('ferret'));
   const glass = sprites['mirror-glass'];
   const lighting = makeMirrorLighting(glass, sprites.draco);
   const reflections = [
     makeReflection('mirror-reflection-left', [675, 369, 747, 410, 732, 444, 664, 452]),
     makeReflection('mirror-reflection-right', [852, 474, 925, 456, 918, 516, 848, 530]),
   ];
-  const debug = new URLSearchParams(location.search).get('debug') === 'wind';
+  const debug = debugView === 'wind';
   const weightTexture = await Assets.load(new URL('./assets/draco-wind-weights.png', import.meta.url).href);
   const wind = createWind(sprites, lighting.bounce, { webgl, debug, weightTexture });
   const crane = makeCraneRig(wind.layers['paper-crane'], placements['paper-crane']);
@@ -159,8 +160,7 @@ async function renderPoster() {
     wind.layers['oak-overhang'],
     wind.layers.draco,
     lighting.bounce,
-    sprites['ferret-low'],
-    sprites['ferret-raised'],
+    ferret.layer,
     crane,
   );
 
@@ -174,10 +174,10 @@ async function renderPoster() {
     const target = app.renderer.events.rootBoundary.hitTest(
       (x - box.left) * WIDTH / box.width, (y - box.top) * HEIGHT / box.height,
     );
-    return ['draco', 'draco-wind', 'ferret-low', 'ferret-raised'].includes(target?.label);
+    return ['draco', 'draco-wind', 'ferret'].includes(target?.label);
   }
   const interactions = createInteractions(stage, apple, isClickable, () => pickLayer('green-apple'));
-  startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions });
+  startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret });
   stage.classList.add('ready');
 }
 

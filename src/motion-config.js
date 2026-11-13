@@ -65,3 +65,25 @@ export const APPLE_JUICE = {
   gravity: 245,             // 水珠向下加速度
   colors: ['#a7ed85', '#d2ff9e', '#ffe09b'], // 青绿为主，少量金色
 };
+
+// 坐标和尺寸以 1600 × 1000 的海报舞台为准，时间单位为秒。
+export const FERRET = {
+  ground: [1277.53, 778.22], // 地面原位，坐标是白鼬脚底的中心
+  root: [1351, 755],        // 奔跑终点，树干右侧的根部
+  branch: [1448, 421],      // 落点，右侧伸出树冠的粗枝上缘
+  branchScale: .55,         // 树上白鼬相对于地面白鼬的大小
+  hitPadding: 7,           // 透明轮廓外增加的点击余量（舞台像素）
+  alertTime: .30,          // 抬头警觉的停顿
+  runTime: .49,            // 朝树根跑的时长
+  runBobs: 2,              // 奔跑中上下起伏的次数
+  runLift: 6,              // 奔跑时向上跃起的幅度
+  scatterTime: .35,        // 白鼬从轮廓散成星屑
+  travelTime: 1.32,        // 星屑沿树干盘旋移动
+  gatherTime: .43,         // 星屑聚拢并淡入白鼬
+  flashTime: .23,          // 白鼬现身时的闪光时长
+  fadeTime: .26,           // 减少动态效果时，单次淡出或淡入时长
+  particleCount: 116,      // 星屑池使用的数量，代码硬上限为 160
+  turns: 2.1,              // 星屑沿树干盘旋的圈数
+  spiralWidth: 40,         // 盘旋横向幅度
+  colors: ['#edf8ff', '#bdf4de', '#f5dfa8'], // 银白为主，少量淡青绿和淡金
+};

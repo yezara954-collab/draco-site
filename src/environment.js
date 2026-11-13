@@ -200,7 +200,7 @@ function makeTwinkles() {
   }));
 }
 
-export function startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions }) {
+export function startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret }) {
   const corridor = makeCorridorSweep();
   const stars = makeTwinkles();
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
@@ -239,7 +239,11 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
     previousFrame = now;
     interactions.update(dt);
     request = requestAnimationFrame(draw);
-    if (motionPreference.matches) return;
+    const ferretMoved = ferret.update(dt);
+    if (motionPreference.matches) {
+      if (ferretMoved) app.render();
+      return;
+    }
 
     elapsed += dt;
     const opening = !introSkipped && elapsed < INTRO.duration;
@@ -272,6 +276,7 @@ export function startEnvironment(app, { glass, lighting, reflections, crane, win
 
   function syncMotion() {
     interactions.setReduced(motionPreference.matches);
+    ferret.setReduced(motionPreference.matches);
     if (motionPreference.matches || document.hidden) {
       if (request !== null) cancelAnimationFrame(request);
       request = null;
