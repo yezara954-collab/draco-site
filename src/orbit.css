@@ -137,6 +137,124 @@
   inset: 0;
   pointer-events: none;
 }
+.orbit-cover-flip {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+.orbit-card[data-section="picture"] .orbit-card-face {
+  perspective: 740px;
+}
+.orbit-card[data-section="picture"] .orbit-cover-flip {
+  transition: transform .55s cubic-bezier(.45, 0, .25, 1);
+}
+.orbit-card.is-flipped .orbit-cover-flip {
+  transform: rotateY(180deg);
+}
+.orbit-cover-front, .orbit-cover-back {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  backface-visibility: hidden;
+}
+.orbit-cover-back {
+  display: grid;
+  place-items: center;
+  transform: rotateY(180deg);
+  background: #e7e0d3;
+  color: #51483a;
+}
+.picture-photo-slot {
+  display: grid;
+  place-items: center;
+  width: 86%;
+  height: 86%;
+  border: 1px solid #8d7e6855;
+  font-size: clamp(.75rem, 1.5vw, 1rem);
+}
+.letter-flight {
+  position: absolute;
+  z-index: 1;
+  top: 38%;
+  left: 80%;
+  width: 20%;
+  transform: translate(-50%, -50%);
+  aspect-ratio: 5 / 4;
+  visibility: hidden;
+  pointer-events: none;
+}
+.letter-flight svg { position: absolute; inset: 0; width: 100%; }
+.orbit-card.is-front .letter-flight {
+  visibility: visible;
+  animation: letter-drop 4.8s infinite;
+}
+.orbit-card.is-front .letter-envelope { animation: letter-fold 4.8s infinite; }
+.orbit-card.is-front .letter-crane { animation: letter-unfold 4.8s infinite; }
+@keyframes letter-drop {
+  0%, 9% { opacity: 0; transform: translate(-50%, -50%) rotate(-15deg); }
+  15% { opacity: 1; transform: translate(-45%, -39%) rotate(-11deg); }
+  35% { opacity: 1; transform: translate(-20%, 117%) rotate(12deg); }
+  50% { transform: translate(-67%, 257%) rotate(-17deg); }
+  61% { opacity: 1; transform: translate(-65%, 340%) rotate(5deg); }
+  76% { opacity: 1; transform: translate(-52%, 359%) rotate(-9deg) scale(1.3); }
+  91%, 100% { opacity: 0; transform: translate(-48%, 344%) rotate(-13deg) scale(1.4); }
+}
+@keyframes letter-fold {
+  0%, 51% { opacity: 1; transform: scale(1); }
+  61%, 100% { opacity: 0; transform: scale(.36, .62) rotate(15deg); }
+}
+@keyframes letter-unfold {
+  0%, 53% { opacity: 0; transform: scale(.42, .58) rotate(-15deg); }
+  66%, 100% { opacity: 1; transform: scale(1); }
+}
+.record-motion {
+  position: absolute;
+  left: 55.9%;
+  top: 49.3%;
+  width: 70.7%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  overflow: hidden;
+  mask-image: radial-gradient(transparent 37%, #000 43% 96%, transparent 100%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+.record-motion::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    repeating-radial-gradient(circle, transparent 0 3px, #f3dbc72c 4px, transparent 5px 7px),
+    conic-gradient(from 6deg, transparent, #ffdfa81a 9deg, #ffe0ab94 18deg, transparent 38deg 132deg,
+      #efb5c583 161deg, transparent 187deg 237deg, #9fd3e083 261deg, transparent 281deg);
+  opacity: 0;
+}
+.orbit-card.is-front .record-motion::before {
+  opacity: .85;
+  animation: record-spin 4s linear infinite;
+}
+@keyframes record-spin { to { transform: rotate(1turn); } }
+.music-pause {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 91.5%;
+  width: 14%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.orbit-card.is-front:has(.music-pause) { cursor: default; }
+.orbit-card.is-front .music-pause { cursor: pointer; pointer-events: auto; }
+.music-pause:hover, .orbit-card:focus-visible .music-pause {
+  box-shadow: inset 0 0 10px #ffe5b940, 0 0 10px #ffe5b973;
+}
+.card-motion-paused .is-front .letter-flight,
+.card-motion-paused .is-front .letter-flight svg,
+.card-motion-paused .is-front .record-motion::before { animation-play-state: paused; }
 .orbit-card:focus-visible, .orbit-arrow:focus-visible, .orbit-back:focus-visible {
   outline: 2px solid #c4f7e0;
   outline-offset: 4px;
@@ -183,6 +301,11 @@
 @media (prefers-reduced-motion: reduce) {
   .orbit-card-face { transition: none; }
   .orbit-card:hover .orbit-card-face, .orbit-card.is-front:hover .orbit-card-face { transform: none; }
+  .orbit-card[data-section="picture"] .orbit-cover-flip { transition: none; }
+  .orbit-card.is-front .letter-flight { visibility: hidden; animation: none; }
+  .orbit-card.is-front .letter-flight svg,
+  .orbit-card.is-front .record-motion::before { animation: none; }
+  .orbit-card.is-front .record-motion::before { opacity: 0; }
 }
 
 .orbit-sky, .orbit-sky-front {

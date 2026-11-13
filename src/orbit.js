@@ -7,6 +7,22 @@ const TURN = 2 * Math.PI;
 const sections = settings.sections;
 const step = TURN / sections.length;
 const covers = import.meta.glob('./assets/covers/cover-*.png', { eager: true, import: 'default' });
+const coverEffects = {
+  letter: `<span class="letter-flight" aria-hidden="true">
+    <svg class="letter-envelope" viewBox="0 0 80 64">
+      <path d="M5 11h70v43H5z" fill="#f8e7c6" stroke="#c72f59" stroke-width="2"/>
+      <path d="m5 11 35 28 35-28m-70 43 25-23m45 23L50 31" fill="none" stroke="#c72f59" stroke-width="1.6"/>
+      <circle cx="40" cy="38" r="6" fill="#e7a142" stroke="#c72f59" stroke-width="1.5"/>
+    </svg>
+    <svg class="letter-crane" viewBox="0 0 80 64">
+      <path d="M3 24 33 35 30 9 17 13 32 3 40 11 49 36 76 17 60 45 62 59 44 47 33 55 23 42Z"
+        fill="#f8e7c6" stroke="#c72f59" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="m3 24 30 22 7-35 4 36 32-30-27 19-16 19 3-16m24 6-16 2"
+        fill="none" stroke="#168e91" stroke-width="1.5" stroke-linejoin="round"/>
+    </svg>
+  </span>`,
+  music: '<span class="record-motion" aria-hidden="true"></span><span class="music-pause" aria-hidden="true"></span>',
+};
 const icons = {
   picture: '<rect x="8" y="11" width="48" height="42" rx="2"/><path d="m9 46 14-15 9 9 8-11 15 17"/><circle cx="24" cy="24" r="3"/>',
   fanfic: '<path d="M38 53H14V10h24l10 10v7M38 10v10h10M21 26h13m-13 8h11m-11 8h8m4 7 2-8 16-16 6 6-16 16z"/>',
@@ -19,6 +35,14 @@ const ease = t => t < .5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
 const out = t => 1 - (1 - clamp(t)) ** 3;
 const wrap = index => (index + sections.length) % sections.length;
 const shortest = angle => ((angle + Math.PI) % TURN + TURN) % TURN - Math.PI;
+
+function coverImage(url, alt = '') {
+  const image = new Image();
+  image.alt = alt;
+  image.draggable = false;
+  image.src = url;
+  return image;
+}
 
 function svg(name, attributes, parent) {
   const node = document.createElementNS('http://www.w3.org/2000/svg', name);
@@ -84,24 +108,42 @@ export function makeNextRoute(stage) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'orbit-card';
+    button.dataset.section = id;
     button.setAttribute('aria-label', name);
     button.style.setProperty('--cover-light', colors[0]);
     button.style.setProperty('--cover-dark', colors[1]);
-    button.innerHTML = `<span class="orbit-card-face">
+    button.innerHTML = `<span class="orbit-card-face"><span class="orbit-cover-flip"><span class="orbit-cover-front">
       <span class="orbit-placeholder">
         <svg viewBox="0 0 64 64" aria-hidden="true">${icons[id]}</svg>
         <span class="orbit-card-name"></span>
-      </span></span>`;
+      </span>
+    </span></span></span>`;
     button.querySelector('.orbit-card-name').textContent = name;
     const cover = covers[`./assets/covers/cover-${id}.png`];
     if (cover) {
-      const image = new Image();
-      image.alt = '';
-      image.draggable = false;
-      image.addEventListener('load', () => button.querySelector('.orbit-card-face').append(image), { once: true });
-      image.src = cover;
+      const front = button.querySelector('.orbit-cover-front');
+      front.append(coverImage(cover));
+      front.insertAdjacentHTML('beforeend', coverEffects[id] ?? '');
     }
-    button.addEventListener('click', () => select(i));
+    if (id === 'picture') {
+      const back = document.createElement('span');
+      back.className = 'orbit-cover-back';
+      back.setAttribute('aria-hidden', 'true');
+      const photo = covers['./assets/covers/cover-picture-back.png'];
+      if (photo) back.append(coverImage(photo, 'Draco 的照片'));
+      else back.innerHTML = '<span class="picture-photo-slot">照片待上传</span>';
+      button.querySelector('.orbit-cover-flip').append(back);
+    }
+    button.addEventListener('click', event => {
+      if (page !== 'orbit' || rotation) return;
+      if (i !== index) {
+        select(i);
+      } else if (id === 'picture') {
+        showPictureBack(!button.classList.contains('is-flipped'));
+      } else if (id !== 'music' || !cover || event.detail === 0 || event.target.closest('.music-pause')) {
+        push('#/' + id, ORBIT);
+      }
+    });
     screen.querySelector('.orbit-cards').append(button);
     return button;
   });
@@ -122,6 +164,13 @@ export function makeNextRoute(stage) {
   const isControl = target => target?.closest('.orbit-card, .orbit-arrow, .orbit-back');
   let suppressClick = false;
   const enterEnd = settings.riseTime + (cards.length - 1) * settings.stagger;
+  const picture = cards.find(card => card.dataset.section === 'picture');
+
+  function showPictureBack(flipped) {
+    picture.classList.toggle('is-flipped', flipped);
+    picture.querySelector('.orbit-cover-back').setAttribute('aria-hidden', String(!flipped));
+    picture.setAttribute('aria-label', flipped ? 'Picture，翻回封面' : 'Picture，翻到照片背面');
+  }
 
   function fit() {
     const w = interaction.clientWidth;
@@ -193,7 +242,16 @@ export function makeNextRoute(stage) {
       const front = i === index;
       card.classList.toggle('is-front', front);
       card.setAttribute('aria-current', String(front));
+      if (card.dataset.section === 'music') {
+        card.setAttribute('aria-label', front ? 'Music，按暂停键进入' : 'Music');
+      }
     });
+    if (cards[index] !== picture) {
+      showPictureBack(false);
+      picture.setAttribute('aria-label', 'Picture');
+    } else {
+      showPictureBack(picture.classList.contains('is-flipped'));
+    }
   }
 
   function push(hash, from) {
@@ -221,6 +279,7 @@ export function makeNextRoute(stage) {
       childTitle.textContent = sections[sub].name;
     }
     if (destination !== 'orbit' && cloudDrag) finishCloudDrag();
+    if (page === 'orbit' && destination !== 'orbit') showPictureBack(false);
     page = destination;
     stage.inert = Boolean(page);
     stage.classList.toggle('routed-away', Boolean(page));
@@ -231,11 +290,7 @@ export function makeNextRoute(stage) {
   }
 
   function select(target, direction = 0) {
-    if (page !== 'orbit' || rotation) return;
-    if (target === index) {
-      push('#/' + sections[index].id, ORBIT);
-      return;
-    }
+    if (page !== 'orbit' || rotation || target === index) return;
     let travel = shortest(target * step - angle);
     if (Math.abs(Math.abs(travel) - Math.PI) < .001 && direction) travel = direction * Math.PI;
     const fade = reduced.matches;
@@ -335,6 +390,9 @@ export function makeNextRoute(stage) {
   });
   interaction.addEventListener('pointerleave', () => { targetX = targetY = 0; });
   window.addEventListener('hashchange', sync);
+  const syncVisibility = () => screen.classList.toggle('card-motion-paused', document.hidden);
+  document.addEventListener('visibilitychange', syncVisibility);
+  syncVisibility();
   reduced.addEventListener('change', () => {
     interaction.classList.toggle('is-grabbable', !reduced.matches);
     if (!reduced.matches) return;
@@ -361,7 +419,12 @@ export function makeNextRoute(stage) {
       if (!page) push(ORBIT, HOME);
     },
     isClickable(x, y) {
-      return Boolean(page && document.elementFromPoint(x, y)?.closest('.orbit-card, .orbit-arrow, .orbit-back'));
+      if (!page) return false;
+      const target = document.elementFromPoint(x, y);
+      if (target?.closest('.orbit-card.is-front[data-section="music"]')?.querySelector('.music-pause')) {
+        return Boolean(target.closest('.music-pause'));
+      }
+      return Boolean(target?.closest('.orbit-card, .orbit-arrow, .orbit-back'));
     },
     cursorMode(x, y) {
       if (page !== 'orbit' || reduced.matches) return '';
