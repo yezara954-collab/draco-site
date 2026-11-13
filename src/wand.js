@@ -134,7 +134,7 @@ export function makeNextRoute(stage) {
   };
 }
 
-export function createWand(stage, crane, craneGlow, route, debug, setCastPose) {
+export function createWand(stage, crane, craneGlow, route, debug, showPose) {
   const canvas = document.createElement('canvas');
   canvas.className = 'wand-effects';
   canvas.width = WIDTH;
@@ -143,7 +143,11 @@ export function createWand(stage, crane, craneGlow, route, debug, setCastPose) {
   stage.append(canvas);
   const ctx = canvas.getContext('2d');
   const [white, gold, mint] = WAND.colors;
-  const arc = sample([WAND.idleTip, ...WAND.crescent, WAND.castTip]);
+  const [a, b, c, d] = WAND.crescent;
+  const arc = [
+    ...sample([WAND.idleTip, a, b, WAND.midTip]),
+    ...sample([WAND.midTip, c, d, WAND.castTip]).slice(1),
+  ];
   const arcColor = ctx.createLinearGradient(...WAND.idleTip, ...WAND.castTip);
   arcColor.addColorStop(0, gold);
   arcColor.addColorStop(.44, white);
@@ -154,7 +158,7 @@ export function createWand(stage, crane, craneGlow, route, debug, setCastPose) {
     x: -60 + Math.random() * (WIDTH + 100), y: -60 + Math.random() * (HEIGHT + 100),
   }));
   const swingStart = WAND.chargeTime;
-  const swapTime = swingStart + WAND.swingTime * WAND.swapAt;
+  const midTime = swingStart + WAND.swingTime * WAND.midAt;
   const linkStart = swingStart + WAND.swingTime;
   const flightStart = linkStart + WAND.linkTime;
   const curtainStart = flightStart + WAND.flightTime - WAND.curtainLead;
@@ -165,7 +169,7 @@ export function createWand(stage, crane, craneGlow, route, debug, setCastPose) {
   let departure = null;
   let mirrorLight = 0;
   let gust = 0;
-  let casting = false;
+  let fadeOnly = false;
   let link = sample([WAND.castTip, ...WAND.link, WAND.crane]);
   let flight = defaultFlight;
 
@@ -175,7 +179,8 @@ export function createWand(stage, crane, craneGlow, route, debug, setCastPose) {
     ribbon(ctx, link, 0, 1, 1, .6, gold);
     ribbon(ctx, arc, 0, 1, 1, .45, white);
     for (const [[x, y], label, color] of [
-      [WAND.idleTip, '待机杖尖', gold], [WAND.castTip, '挥杖杖尖', mint], [WAND.crane, '纸鹤原位 / 魔法落点', mint],
+      [WAND.idleTip, '① 待机杖尖', gold], [WAND.midTip, '② 中间杖尖', white],
+      [WAND.castTip, '③ 完成杖尖', mint], [WAND.crane, '纸鹤原位 / 魔法落点', mint],
       [at(defaultFlight, .79), '飞往左上画外', mint],
     ]) {
       dot(ctx, x, y, 5, 1, color, true);
@@ -292,16 +297,17 @@ export function createWand(stage, crane, craneGlow, route, debug, setCastPose) {
     start() {
       if (age !== null || route.inNext) return;
       age = 0;
+      fadeOnly = reduced;
     },
     setReduced(value) {
-      if (value && !reduced && age !== null) {
+      if (value && !fadeOnly && age !== null && !route.inNext) {
         age = 0;
         mirrorLight = 0;
         gust = 0;
         craneGlow.alpha = 0;
         departure = null;
-        casting = false;
-        setCastPose(false);
+        fadeOnly = true;
+        showPose(0);
       }
       reduced = value;
     },
@@ -310,7 +316,7 @@ export function createWand(stage, crane, craneGlow, route, debug, setCastPose) {
       if (age === null || route.inNext) return;
       age += dt;
       ctx.clearRect(0, 0, WIDTH, HEIGHT);
-      if (reduced) {
+      if (fadeOnly) {
         blackout(smooth(age / WAND.reducedFade));
         if (age >= WAND.reducedFade) route.enter();
         return;
@@ -320,32 +326,32 @@ export function createWand(stage, crane, craneGlow, route, debug, setCastPose) {
       const connection = clamp((age - linkStart) / WAND.linkTime);
       const rawFlight = (age - flightStart) / WAND.flightTime;
       mirrorLight = WAND.mirrorLight * smooth(charge) * (1 - smooth(swing * 1.6));
-      const swapAge = age - swapTime;
-      const flashTime = Math.min(.12, WAND.swapFlash);
-      const flash = 1 - smooth(Math.abs(swapAge) / (flashTime / 2));
-      if (!casting && swapAge >= 0) {
-        casting = true;
-        setCastPose(true);
-      }
-      gust = WAND.gustStrength * smooth(1 + swapAge / WAND.gustRise)
-        * (1 - smooth(swapAge / WAND.gustFall));
-      const tip = casting ? WAND.castTip : WAND.idleTip;
-      const tipLight = casting ? .62 * (1 - smooth((age - linkStart) / WAND.tipAfterglow))
-        : smooth(charge) * (1 - .46 * swing);
-      halo(ctx, ...tip, 32 + 12 * swing, tipLight * .78, casting ? mint : gold);
+      const midAge = age - midTime;
+      const pose = age >= linkStart ? 2 : age >= midTime ? 1 : 0;
+      const poseAge = pose === 2 ? age - linkStart : midAge;
+      const blend = pose ? smooth(poseAge / WAND.poseFade) : 1;
+      const ghost = poseAge < WAND.poseFade
+        ? mix(1, WAND.ghostOpacity, blend)
+        : WAND.ghostOpacity * (1 - smooth((poseAge - WAND.poseFade) / (WAND.ghostTime - WAND.poseFade)));
+      showPose(pose, pose ? ghost : 0, blend, age >= swingStart);
+      gust = WAND.gustStrength * smooth(1 + midAge / WAND.gustRise)
+        * (1 - smooth(midAge / WAND.gustFall));
+
+      // At exactly midTime the arc head is at the shared Bézier knot.
+      const progress = age < midTime
+        ? .5 * smooth(swing) / smooth(WAND.midAt)
+        : .5 + .5 * (smooth(swing) - smooth(WAND.midAt)) / (1 - smooth(WAND.midAt));
+      const tip = at(arc, progress);
+      const tipLight = age < swingStart ? smooth(charge)
+        : 1 - smooth((age - linkStart) / WAND.tipAfterglow);
+      halo(ctx, ...tip, 32 + 12 * swing, tipLight * .78, swing < WAND.midAt ? gold : mint);
       dot(ctx, ...tip, 5, tipLight, white, true);
       if (swing > 0) {
-        const arcLight = (.75 + .25 * flash) * (1 - smooth((age - linkStart) / WAND.linkTime));
-        crescent(smooth(swing), arcLight);
-      }
-      if (flash > 0) {
-        const [x, y] = at(arc, .5);
-        halo(ctx, x, y, 154, flash * .66, white);
-        halo(ctx, 752, 432, 250, flash * .41, mint);
-        dot(ctx, x, y, 15, flash, white, true);
+        const arcLight = 1 - smooth((age - linkStart) / WAND.linkTime);
+        crescent(progress, arcLight);
       }
       if (!departure && connection > 0) link = sample([WAND.castTip, ...WAND.link, [crane.x, crane.y]]);
-      paintLink(smooth(connection), 1 - smooth(rawFlight / .66));
+      paintLink(smooth(connection), 1 - smooth((age - flightStart) / WAND.linkFade));
       if (rawFlight >= 0) fly(rawFlight);
       drawDebug();
       if (age >= curtainStart) curtain(clamp((age - curtainStart) / WAND.curtainTime));

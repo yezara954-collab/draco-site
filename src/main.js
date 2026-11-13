@@ -22,6 +22,7 @@ const canInteract = () => !route.inNext && !wand?.active;
 
 const assetUrls = {
   draco: new URL('./assets/draco.png', import.meta.url).href,
+  'draco-mid': new URL('./assets/draco-mid.png', import.meta.url).href,
   'draco-cast': new URL('./assets/draco-cast.png', import.meta.url).href,
   'mirror-glass': new URL('./assets/mirror-glass.png', import.meta.url).href,
   'mirror-frame': new URL('./assets/mirror-frame.png', import.meta.url).href,
@@ -108,9 +109,12 @@ const layerTints = {
   'ferret-raised': 0xe5e5e5,
 };
 
+const poseNames = ['idle', 'mid', 'cast'];
+const poseLayers = ['draco', 'draco-mid', 'draco-cast'];
+
 function pickLayer(layer) {
   if (!canInteract()) return;
-  if (layer === 'draco' || layer === 'draco-cast') wand?.start();
+  if (poseLayers.includes(layer)) wand?.start();
   art.dispatchEvent(new CustomEvent('poster:pick', { bubbles: true, detail: { layer } }));
 }
 
@@ -153,29 +157,42 @@ async function renderPoster() {
     makeReflection('mirror-reflection-right', [852, 474, 925, 456, 918, 516, 848, 530]),
   ];
   const debug = debugView === 'wind';
-  const [idleWeights, castWeights] = await Promise.all([
-    Assets.load(new URL('./assets/draco-wind-weights.png', import.meta.url).href),
-    Assets.load(new URL('./assets/draco-cast-wind-weights.png', import.meta.url).href),
-  ]);
-  const wind = createWind(sprites, lighting.bounce, { webgl, debug, idleWeights, castWeights });
-  const idle = wind.layers.draco;
-  const casting = wind.layers['draco-cast'];
+  const weightUrls = [
+    new URL('./assets/draco-wind-weights.png', import.meta.url).href,
+    new URL('./assets/draco-mid-wind-weights.png', import.meta.url).href,
+    new URL('./assets/draco-cast-wind-weights.png', import.meta.url).href,
+  ];
+  const weights = await Promise.all(weightUrls.map(url => Assets.load(url)));
+  const weightTextures = Object.fromEntries(poseLayers.map((name, index) => [name, weights[index]]));
+  const wind = createWind(sprites, lighting.bounce, { webgl, debug, weightTextures });
   const frame = sprites['mirror-frame'];
   const poseDebug = debugView === 'pose';
   const poses = new Container({ label: 'draco-poses' });
-  poses.addChild(idle, casting, wind.bounce);
-  function setCastPose(active) {
-    idle.visible = !active || poseDebug;
-    casting.visible = active || poseDebug;
-    wind.bounce.renderable = !active && !poseDebug;
-    idle.alpha = poseDebug ? .52 : 1;
-    casting.alpha = poseDebug ? .58 : 1;
-    idle.eventMode = active ? 'none' : (webgl ? 'static' : 'passive');
-    casting.eventMode = active ? (webgl ? 'static' : 'passive') : 'none';
-    // Preserve the original layering at rest and clear the frame/foliage for the cast.
-    if (active) layers.setChildIndex(poses, layers.getChildIndex(crane) - 1);
-    else layers.setChildIndex(poses, layers.getChildIndex(frame) + 2);
-    stage.dataset.pose = active ? 'cast' : 'idle';
+  const figures = poseLayers.map(name => wind.layers[name]);
+  poses.addChild(...figures, wind.bounce);
+  let currentPose = -1;
+  let elevated = null;
+  function showPose(index, previousAlpha = 0, currentAlpha = 1, spellLayer = false) {
+    figures.forEach((figure, i) => {
+      const alpha = i === index ? currentAlpha : i === index - 1 ? previousAlpha : 0;
+      figure.alpha = poseDebug ? .5 : alpha;
+      figure.visible = poseDebug || alpha > 0;
+      if (currentPose !== index) {
+        figure.eventMode = i === index ? (webgl ? 'static' : 'passive') : 'none';
+      }
+    });
+    if (currentPose !== index) {
+      currentPose = index;
+      stage.dataset.pose = poseNames[index];
+    }
+    wind.bounce.renderable = index === 0 && !poseDebug;
+    if (elevated !== spellLayer) {
+      elevated = spellLayer;
+      // The casting pose sits in front of the mirror and foliage; the crane
+      // stays in front of the characters. Restore the idle ordering afterward.
+      const destination = spellLayer ? layers.getChildIndex(crane) - 1 : layers.getChildIndex(frame) + 2;
+      layers.setChildIndex(poses, destination);
+    }
   }
   const crane = makeCraneRig(wind.layers['paper-crane'], placements['paper-crane']);
   const craneArtwork = wind.layers['paper-crane'];
@@ -200,25 +217,25 @@ async function renderPoster() {
     crane,
   );
 
-  setCastPose(false);
+  showPose(0);
   if (poseDebug) {
     const caption = document.createElement('p');
     caption.className = 'pose-debug-caption';
-    caption.textContent = '姿势对齐 · 待机与挥杖叠加（静止）';
+    caption.textContent = '姿势对齐 · 待机、中间、完成叠加';
     stage.append(caption);
   }
   app.render();
   await typesetTitle();
   const intro = makeIntro(stage);
   const apple = document.querySelector('#green-apple');
-  wand = createWand(stage, crane, craneGlow, route, debugView === 'wand', setCastPose);
+  wand = createWand(stage, crane, craneGlow, route, debugView === 'wand', showPose);
   function isClickable(x, y) {
     const box = app.canvas.getBoundingClientRect();
     if (x < box.left || x >= box.right || y < box.top || y >= box.bottom) return false;
     const target = app.renderer.events.rootBoundary.hitTest(
       (x - box.left) * WIDTH / box.width, (y - box.top) * HEIGHT / box.height,
     );
-    return ['draco', 'draco-wind', 'draco-cast', 'draco-cast-wind', 'ferret'].includes(target?.label);
+    return target?.label === 'ferret' || poseLayers.includes(target?.label?.replace(/-wind$/, ''));
   }
   const interactions = createInteractions(stage, apple, isClickable, () => pickLayer('green-apple'), canInteract);
   startEnvironment(app, { glass, lighting, reflections, crane, wind, intro, interactions, ferret, wand, poseDebug });

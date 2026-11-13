@@ -2,7 +2,7 @@ import { Container, Mesh, MeshGeometry, Sprite, Texture } from 'pixi.js';
 
 import { INTRO, WIND } from './motion-config.js';
 
-const LAYERS = ['oak-tree', 'oak-overhang', 'draco', 'draco-cast', 'paper-crane'];
+const LAYERS = ['oak-tree', 'oak-overhang', 'draco', 'draco-mid', 'draco-cast', 'paper-crane'];
 // Shared world grid: both oak meshes use the same triangles even in their overlap.
 const OAK_GRID = { x: 566, y: 53, width: 984, height: 760, columns: 30, rows: 24 };
 
@@ -156,11 +156,14 @@ function meshAlphaHit(geometry, sprite, width, height) {
 
 function makeLayer(sprite, { webgl, debug, weights, idleX }) {
   const oak = sprite.label.startsWith('oak-');
-  const extraColumns = sprite.label === 'draco-cast' ? 5 : 0;
+  // Extend the grid to the left of the idle crop while keeping the shared
+  // body vertices at the same stage positions and wind phase.
+  const extraWidth = weights ? Math.max(0, idleX - sprite.x) : 0;
+  const extraColumns = Math.round(extraWidth / ((sprite.width - extraWidth) / 23));
   const bounds = oak ? OAK_GRID : {
     x: sprite.x, y: sprite.y, width: sprite.width, height: sprite.height,
     columns: weights ? 23 + extraColumns : 10, rows: weights ? 35 : 8,
-    extraColumns, extraWidth: extraColumns ? idleX - sprite.x : 0,
+    extraColumns, extraWidth,
   };
   const grid = buildGrid(sprite, bounds, oak, weights);
   const layer = new Container({ label: sprite.label + '-wind', x: bounds.x, y: bounds.y });
@@ -280,8 +283,9 @@ function makeGusts() {
   };
 }
 
-export function createWind(sprites, bounce, { webgl, idleWeights, castWeights, debug }) {
-  const weightsByPose = { draco: readWeights(idleWeights), 'draco-cast': readWeights(castWeights) };
+export function createWind(sprites, bounce, { webgl, weightTextures, debug }) {
+  const weightsByPose = Object.fromEntries(Object.entries(weightTextures)
+    .map(([name, texture]) => [name, readWeights(texture)]));
   const idleX = sprites.draco.x;
   const affected = Object.fromEntries(LAYERS.map(name => [
     name, makeLayer(sprites[name], { webgl, debug, weights: weightsByPose[name], idleX }),
@@ -300,7 +304,9 @@ export function createWind(sprites, bounce, { webgl, idleWeights, castWeights, d
     bounce: movingBounce,
     update(time, introTime, castGust = 0) {
       const arrivals = gusts(time);
-      for (const { geometry, rest, moving, shifts, constraints } of meshes) {
+      for (const { layer, geometry, rest, moving, shifts, constraints } of meshes) {
+        // Newly visible poses get the current absolute time on their first frame.
+        if (!layer.visible) continue;
         // Both tree layers use identical positions, including the anti-fold correction.
         if (geometry === oakOverlay) {
           geometry.positions.set(affected['oak-tree'].geometry.positions);
