@@ -1,206 +1,298 @@
-import { PICTURE as config } from './motion-config.js';
-import cameraUrl from './assets/picture/camera-blue.svg';
-import previewPhoto from './assets/covers/cover-picture-back.webp';
-import { openPhotoLibrary, preparePhoto, withPhotoImage } from './picture-storage.js';
-import { drawFoldingPaper } from './picture-fold.js';
+import { picture as config } from './config.js';
+import { openPhotoLibrary, preparePhoto } from './picture-storage.js';
 import './picture.css';
 
-const { stage, palette, camera, paper, timing, flight, stars } = config;
-const clamp = x => Math.max(0, Math.min(1, x));
+const { palette, display, sky, tassel, wind, falling, ground } = config;
+const tau = 2 * Math.PI;
+const clamp = value => Math.max(0, Math.min(1, value));
 const mix = (a, b, t) => a + (b - a) * t;
-const ease = t => t * t * (3 - 2 * t);
-const cubic = (points, t) => points[0].map((_, i) =>
-  (1 - t) ** 3 * points[0][i] + 3 * (1 - t) ** 2 * t * points[1][i] +
-  3 * (1 - t) * t ** 2 * points[2][i] + t ** 3 * points[3][i]);
 
-const liftStart = timing.delay + timing.eject;
-const hoverStart = liftStart + timing.rise;
-const foldStart = hoverStart + timing.hover;
-const flightStart = foldStart + timing.fold;
-const cycleEnd = flightStart + timing.flight + timing.rest;
-const printDepth = .73;
-const ejectY = camera.slotY + paper.height * printDepth / 2 + 2;
-
-function makeStageCanvas(parent) {
-  const canvas = document.createElement('canvas');
-  canvas.setAttribute('aria-hidden', 'true');
-  const dpr = Math.min(devicePixelRatio || 1, stage.maxDpr);
-  canvas.width = Math.round(stage.width * dpr);
-  canvas.height = Math.round(stage.height * dpr);
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  parent.append(canvas);
-  return ctx;
+function makeRandom(initial) {
+  let seed = initial;
+  return () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
 }
 
-function drawStar(ctx, x, y, r, color, opacity) {
-  ctx.fillStyle = color;
-  ctx.globalAlpha = clamp(opacity);
+function makeStar(random, index) {
+  const points = index % 3 ? 4 : 5;
+  return {
+    color: index % 3 === 1 ? palette.gold : palette.ink,
+    seed: index + 700,
+    corners: Array.from({ length: points * 2 }, (_, i) => {
+      const angle = i * Math.PI / points - Math.PI / 2 + (random() - .5) * .1;
+      const radius = (i % 2 ? (points === 4 ? .27 : .44) : 1) * mix(.90, 1.13, random());
+      return [Math.cos(angle) * radius, Math.sin(angle) * radius];
+    }),
+  };
+}
+
+function drawStar(ctx, art, x, y, size, angle, alpha, glow = tassel.glow) {
+  if (alpha <= 0) return;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = art.color;
+  ctx.shadowColor = art.color;
+  ctx.shadowBlur = glow;
+  ctx.lineWidth = 1.05;
+  ctx.lineJoin = 'round';
+  if (art.rough) {
+    ctx.scale(size / art.rough.size, size / art.rough.size);
+    art.rough.renderer.draw(art.rough.drawing);
+  } else {
+    ctx.beginPath();
+    art.corners.forEach(([px, py], index) => {
+      if (index === 0) ctx.moveTo(px * size, py * size);
+      else ctx.lineTo(px * size, py * size);
+    });
+    ctx.closePath();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // 断续的第二道细边保留手绘墨线的浓淡与笔锋。
+    ctx.globalAlpha *= .45;
+    ctx.lineWidth = .55;
+    ctx.beginPath();
+    for (let i = 0; i < art.corners.length; i += 3) {
+      const [a, b] = [art.corners[i], art.corners[(i + 1) % art.corners.length]];
+      ctx.moveTo(a[0] * size * .95, a[1] * size * .95);
+      ctx.lineTo(mix(a[0], b[0], .78) * size * .95, mix(a[1], b[1], .78) * size * .95);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function dot(ctx, x, y, radius) {
   ctx.beginPath();
-  ctx.moveTo(x - r, y);
-  ctx.quadraticCurveTo(x, y, x, y - r * 1.24);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.quadraticCurveTo(x, y, x, y + r * 1.24);
-  ctx.quadraticCurveTo(x, y, x - r, y);
+  ctx.arc(x, y, radius, 0, tau);
   ctx.fill();
 }
 
-function makeStarField() {
-  let seed = stars.seed;
-  function random() {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    return seed / 4294967296;
-  }
-  return Array.from({ length: stars.count }, (_, i) => {
-    const drape = i < stars.drapeCount;
-    const x = drape ? 106 + i / (stars.drapeCount - 1) * 1388 : 45 + random() * 1510;
-    const y = drape ? 86 + Math.sin(i / (stars.drapeCount - 1) * Math.PI) * 42 + random() * 96 : 28 + random() * 836;
-    const radius = drape ? 2 + random() * 3 : .52 + random() * 1.4;
-    return { x, y, radius, drape, phase: random() * Math.PI * 2, speed: .6 + random() * 1.35, color: i % 9 === 0 ? palette.gold : palette.white };
-  });
-}
+function makeSky(canvas, ctx, motion) {
+  const random = makeRandom(display.seed + 1);
+  const range = ([a, b]) => mix(a, b, random());
+  const fieldRandom = makeRandom(display.seed);
+  const field = Array.from({ length: sky.count }, (_, i) => ({
+    x: fieldRandom(), y: mix(.015, .95, fieldRandom()), size: mix(...sky.size, fieldRandom()),
+    period: mix(...sky.period, fieldRandom()), phase: fieldRandom() * tau,
+    pale: i % 7 !== 0, flare: i < sky.flares ? makeStar(fieldRandom, i + 1) : null,
+  }));
+  const strands = Array.from({ length: tassel.count }, (_, i) => ({
+    index: i, length: range(tassel.length), size: range(tassel.starRadius),
+    beads: Math.round(range(tassel.beadCount)), art: makeStar(random, i),
+    angle: range([-.025, .025]), angularSpeed: 0, regrow: tassel.regrow, missing: false,
+  }));
+  let width = 1;
+  let height = 1;
+  let scale = 1;
+  let active = [];
+  let starLimit = sky.count;
+  let clock = 0;
+  let nextFall = range(falling.first);
+  let drop;
+  let sparks = [];
+  let roughRenderer;
+  let background;
 
-function drawSky(ctx, field, seconds) {
-  ctx.clearRect(0, 0, stage.width, stage.height);
-  for (const { x, y, radius, drape, phase, speed, color } of field) {
-    const pulse = .50 + .50 * Math.sin(seconds * speed + phase);
-    if (drape) {
-      const line = ctx.createLinearGradient(x, 0, x, y);
-      line.addColorStop(0, '#e9f5ff03');
-      line.addColorStop(.7, '#e9f5ff30');
-      line.addColorStop(1, '#e9f5ff99');
-      ctx.strokeStyle = line;
-      ctx.globalAlpha = .24 + pulse * .45;
-      ctx.lineWidth = .65;
+  function sizeOf(strand) { return strand.size * scale; }
+
+  function fit() {
+    width = Math.max(1, canvas.clientWidth);
+    height = Math.max(1, canvas.clientHeight);
+    const ratio = Math.min(devicePixelRatio || 1, display.maxDpr);
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+    ctx.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
+    const narrow = width <= display.mobileWidth;
+    scale = mix(...display.starScale, clamp(width / display.fullSizeWidth));
+    const count = narrow ? Math.ceil(tassel.count * display.mobileFactor) : tassel.count;
+    starLimit = narrow ? Math.round(sky.count * display.mobileFactor) : sky.count;
+    active = Array.from({ length: count }, (_, i) => strands[Math.round(i * (strands.length - 1) / Math.max(1, count - 1))]);
+    active.forEach((strand, i) => {
+      strand.x = width * mix(...tassel.span, (i + .13 * Math.sin(i * 5)) / Math.max(1, count - 1));
+      strand.reach = height * strand.length;
+      if (roughRenderer) {
+        strand.art.rough = {
+          renderer: roughRenderer,
+          size: sizeOf(strand),
+          drawing: roughRenderer.generator.polygon(strand.art.corners.map(([x, y]) => [x * sizeOf(strand), y * sizeOf(strand)]), {
+            stroke: strand.art.color, strokeWidth: .73, roughness: .72, bowing: .38, seed: strand.art.seed,
+          }),
+        };
+      }
+    });
+    background = ctx.createLinearGradient(0, 0, 0, height);
+    background.addColorStop(.35, palette.black);
+    background.addColorStop(1, palette.blackTint);
+    if (drop) {
+      drop.strand.missing = false;
+      drop = null;
+    }
+    sparks = [];
+    paint();
+  }
+
+  function drawGround() {
+    const [left, right] = ground.span.map(value => value * width);
+    const y = height * ground.y;
+    const length = (right - left) / ground.segments;
+    ctx.strokeStyle = palette.ink;
+    ctx.lineWidth = ground.lineWidth;
+    for (let i = 0; i < ground.segments; i++) {
+      const x = left + i * length;
+      ctx.globalAlpha = ground.alpha * (.64 + .36 * Math.sin(i * .76 + .7));
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, y);
+      ctx.moveTo(x, y + Math.sin(i * 2) * ground.waviness * .5);
+      ctx.bezierCurveTo(x + length * .19, y - ground.waviness, x + length * .52,
+        y + ground.waviness * Math.cos(i * 1.8), x + length * (.81 + .14 * Math.sin(i * 4)), y);
       ctx.stroke();
     }
-    drawStar(ctx, x, y, radius * (.82 + pulse * .18), color, (drape ? .48 : .10) + pulse * (drape ? .42 : .25));
+    ctx.globalAlpha = 1;
   }
-  ctx.globalAlpha = 1;
-}
 
-function makePrint(image) {
-  const canvas = document.createElement('canvas');
-  canvas.width = paper.width * 3;
-  canvas.height = paper.height * 3;
-  const context = canvas.getContext('2d');
-  context.scale(3, 3);
-  context.fillStyle = palette.paper;
-  context.fillRect(0, 0, paper.width, paper.height);
-  const inset = 8;
-  const w = paper.width - inset * 2;
-  const h = paper.height - 31;
-  const scale = Math.max(w / image.naturalWidth, h / image.naturalHeight);
-  const iw = scale * image.naturalWidth;
-  const ih = scale * image.naturalHeight;
-  context.fillStyle = '#cdd8eb';
-  context.fillRect(inset, inset, w, h);
-  context.beginPath();
-  context.rect(inset, inset, w, h);
-  context.clip();
-  context.drawImage(image, inset + (w - iw) / 2, inset + (h - ih) / 2, iw, ih);
-  return canvas;
-}
-
-function flightPoint(start, t) {
-  return cubic([start, ...flight.controls.slice(1)], t);
-}
-
-function drawFlightTrail(ctx, t, start) {
-  const length = Math.min(t, flight.trail);
-  if (length <= 0) return;
-  for (let i = 0; i < 25; i++) {
-    const u = t - length + i / 25 * length;
-    const a = flightPoint(start, u);
-    const b = flightPoint(start, Math.min(1, u + length / 25));
-    ctx.globalAlpha = (i / 25) ** 1.65 * .68;
-    ctx.strokeStyle = i % 6 === 0 ? palette.gold : palette.cold;
-    ctx.lineWidth = .45 + i / 34;
+  function drawStrand(strand) {
+    const x = Math.sin(strand.angle) * strand.reach;
+    const y = Math.cos(strand.angle) * strand.reach;
+    ctx.save();
+    ctx.translate(strand.x, 0);
+    ctx.strokeStyle = palette.ink;
+    ctx.lineWidth = tassel.lineWidth;
+    ctx.globalAlpha = tassel.lineOpacity;
     ctx.beginPath();
-    ctx.moveTo(...a);
-    ctx.lineTo(...b);
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(x * .56, y * .47, x, y);
     ctx.stroke();
+    for (let i = 1; i <= strand.beads; i++) {
+      const p = (i + .13 * Math.sin(i * 6 + strand.index)) / (strand.beads + 1.1);
+      ctx.fillStyle = i === strand.beads ? strand.art.color : palette.ink;
+      ctx.globalAlpha = .3 + p * .36;
+      dot(ctx, x * (p + .12 * p * (1 - p)), y * (p - .06 * p * (1 - p)), (1.05 + p * .5) * scale);
+    }
+    ctx.restore();
+    if (!strand.missing) {
+      const growth = clamp(strand.regrow / tassel.regrow);
+      drawStar(ctx, strand.art, strand.x + x, y + sizeOf(strand) * .92, sizeOf(strand) * (.65 + growth * .35),
+        strand.angle * .62, growth * .93);
+    }
   }
-  for (let i = 0; i < stars.trailCount; i++) {
-    const age = (i + 1) / (stars.trailCount + 1);
-    const u = t - age * flight.trail * 1.34;
-    if (u < 0 || u > 1) continue;
-    const [x, y] = flightPoint(start, u);
-    const spread = (11 + age * 37) * Math.sin(i * 2.399);
-    const blink = .65 + .35 * Math.sin(i * 2.1 + t * 31);
-    drawStar(ctx, x - age * 17, y + spread, (i % 6 === 0 ? 4.1 : 1.9) * (1 - age * .7),
-      i % 7 === 0 ? palette.gold : palette.white, (1 - age) * blink * .84);
+
+  function paint() {
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, width, height);
+    for (let i = 0; i < starLimit; i++) {
+      const star = field[i];
+      const pulse = (.5 + .5 * Math.sin(clock * tau / star.period + star.phase)) ** 2;
+      const opacity = mix(...sky.opacity, pulse);
+      const tint = star.pale ? palette.ink : palette.gold;
+      if (star.flare && pulse > .72) {
+        drawStar(ctx, star.flare, star.x * width, star.y * height, 3.8 * scale, 0, (pulse - .72) * 1.9, 3);
+      }
+      ctx.globalAlpha = opacity;
+      ctx.fillStyle = tint;
+      dot(ctx, star.x * width, star.y * height, star.size * scale);
+    }
+    ctx.globalAlpha = 1;
+    active.forEach(drawStrand);
+    drawGround();
+    if (drop) {
+      drop.tail.forEach(({ x, y }, i) => {
+        const p = (i + 1) / drop.tail.length;
+        ctx.fillStyle = i % 3 ? palette.ink : drop.strand.art.color;
+        ctx.globalAlpha = p * p * .60;
+        dot(ctx, x, y, (.28 + p * 1.14) * scale);
+      });
+      ctx.globalAlpha = 1;
+      drawStar(ctx, drop.strand.art, drop.x, drop.y, sizeOf(drop.strand), drop.angle, 1);
+    }
+    for (const spark of sparks) {
+      const p = clamp(1 - spark.age / spark.life);
+      ctx.globalAlpha = p * .83;
+      ctx.fillStyle = spark.color;
+      dot(ctx, spark.x, spark.y, (.5 + p * 1.25) * scale);
+    }
+    ctx.globalAlpha = 1;
   }
-  ctx.globalAlpha = 1;
-}
 
-function hoverPose(seconds) {
-  return [paper.x + Math.sin(seconds * 2.2) * 8, paper.y + Math.sin(seconds * 2.6) * 10];
-}
-
-function paintPrint(ctx, clock, image, reduced) {
-  ctx.clearRect(0, 0, stage.width, stage.height);
-  if (!image || clock < timing.delay || clock >= flightStart + timing.flight) return false;
-  const fold = clamp((clock - foldStart) / timing.fold);
-  const flightTime = clamp((clock - flightStart) / timing.flight);
-  const exitWeight = ease(clamp((flightTime - .78) / .22));
-  const start = hoverPose(flightStart - hoverStart);
-  let [x, y] = start;
-  let angle = paper.angle;
-  let scale = 1;
-  let flap = 0;
-  let depth = 1;
-  ctx.save();
-  if (reduced) {
-    [x, y] = hoverPose(0);
-    ctx.globalAlpha = Math.min(clamp((clock - timing.delay) / .4), clamp((cycleEnd - clock - .4) / .5));
-  } else if (clock < liftStart) {
-    const p = ease(clamp((clock - timing.delay) / timing.eject));
-    x = camera.slotX;
-    y = mix(camera.slotY - paper.height * printDepth / 2, ejectY, p);
-    depth = printDepth;
-    angle = camera.slotAngle;
-    // 原画出片口下沿作为裁切边界，前缘在出纸阶段盖住相纸。
-    ctx.beginPath();
-    ctx.moveTo(0, camera.slotY - camera.slotX * camera.slotAngle);
-    ctx.lineTo(stage.width, camera.slotY + (stage.width - camera.slotX) * camera.slotAngle);
-    ctx.lineTo(stage.width, stage.height);
-    ctx.lineTo(0, stage.height);
-    ctx.closePath();
-    ctx.clip();
-  } else if (clock < hoverStart) {
-    const p = clamp((clock - liftStart) / timing.rise);
-    [x, y] = cubic([[camera.slotX, ejectY], [570, 875], [493, 320], [paper.x, paper.y]], ease(p));
-    depth = mix(printDepth, 1, ease(p));
-    angle = mix(camera.slotAngle, paper.angle, ease(p)) + Math.sin(Math.PI * p) * -.24;
-  } else if (flightTime > 0) {
-    const t = flightTime ** 1.16;
-    [x, y] = flightPoint(start, t);
-    drawFlightTrail(ctx, t, start);
-    angle = paper.angle + Math.sin(t * Math.PI) * .2 - t * .2;
-    scale = mix(1, flight.scale, t);
-    flap = Math.sin(t * Math.PI * 12) * 12 * clamp(t * 12);
-    ctx.globalAlpha = 1 - exitWeight;
-  } else {
-    [x, y] = hoverPose(clock - hoverStart);
+  function detach() {
+    const strand = active[Math.floor(random() * active.length)];
+    strand.missing = true;
+    strand.regrow = 0;
+    drop = {
+      strand, x: strand.x + Math.sin(strand.angle) * strand.reach,
+      y: Math.cos(strand.angle) * strand.reach + sizeOf(strand) * .92,
+      vx: Math.cos(strand.angle) * strand.angularSpeed * strand.reach,
+      vy: 8, angle: strand.angle, tail: [], sample: 0,
+    };
   }
-  ctx.translate(x, y);
-  ctx.rotate(angle);
-  ctx.scale(scale, scale * depth);
-  drawFoldingPaper(ctx, image, paper.width, paper.height, reduced ? 0 : fold, flap);
-  ctx.restore();
-  return !reduced && clock < liftStart;
-}
 
-function positionCamera(image) {
-  const { style } = image;
-  style.left = `${100 * camera.x / stage.width}%`;
-  style.top = `${100 * camera.y / stage.height}%`;
-  style.width = `${100 * camera.width / stage.width}%`;
-  style.height = `${100 * camera.height / stage.height}%`;
+  function update(dt) {
+    if (motion.matches || document.hidden) return;
+    dt = Math.min(dt, display.maxStep);
+    clock += dt;
+    for (const strand of active) {
+      const time = clock - strand.x / width * wind.travel;
+      const front = ((time % wind.gustEvery) + wind.gustEvery) % wind.gustEvery;
+      const gust = front < wind.gustDuration ? Math.sin(Math.PI * front / wind.gustDuration) ** 2 : 0;
+      const force = wind.steady * Math.sin(time * wind.pulseSpeed)
+        + wind.steady * .37 * Math.sin(time * wind.crossSpeed + strand.index * .23) + gust * wind.gust;
+      const acceleration = force - wind.damping * strand.angularSpeed - wind.gravity / strand.reach * Math.sin(strand.angle);
+      strand.angularSpeed += acceleration * dt;
+      strand.angle += strand.angularSpeed * dt;
+      if (!strand.missing) strand.regrow = Math.min(tassel.regrow, strand.regrow + dt);
+    }
+    if (!drop && clock >= nextFall) detach();
+    if (drop) {
+      drop.vx *= 1 - falling.airDrag * dt;
+      drop.vy += falling.gravity * dt;
+      drop.x += drop.vx * dt;
+      drop.y += drop.vy * dt;
+      drop.angle += dt * .25;
+      drop.sample += dt;
+      if (drop.sample >= falling.tailStep) {
+        drop.sample %= falling.tailStep;
+        drop.tail.push({ x: drop.x, y: drop.y });
+        if (drop.tail.length > falling.tailCount) drop.tail.shift();
+      }
+      if (drop.y >= height * ground.y) {
+        const floor = height * ground.y;
+        const count = width <= display.mobileWidth ? Math.ceil(falling.sparkCount * display.mobileFactor) : falling.sparkCount;
+        sparks = Array.from({ length: count }, (_, i) => ({
+          x: drop.x, y: floor, vx: range([-46, 46]), vy: range([-53, -14]),
+          life: range(falling.sparkLife), age: 0, color: i % 3 ? palette.ink : palette.gold,
+        }));
+        drop.strand.missing = false;
+        drop = null;
+        nextFall = clock + range(falling.interval);
+      }
+    }
+    sparks = sparks.filter(spark => spark.age < spark.life);
+    for (const spark of sparks) {
+      spark.age += dt;
+      spark.x += spark.vx * dt;
+      spark.y += spark.vy * dt;
+      spark.vy += 69 * dt;
+    }
+    paint();
+  }
+
+  return {
+    fit, update,
+    setRough(renderer) { roughRenderer = renderer; fit(); },
+    settle() {
+      drop = null;
+      sparks = [];
+      for (const strand of strands) {
+        strand.angle = strand.angularSpeed = 0;
+        strand.regrow = tassel.regrow;
+        strand.missing = false;
+      }
+      nextFall = clock + range(falling.first);
+      paint();
+    },
+  };
 }
 
 export function mountPicture(host) {
@@ -208,154 +300,79 @@ export function mountPicture(host) {
   const { signal } = lifetime;
   const scene = document.createElement('section');
   scene.className = 'picture-scene';
-  scene.setAttribute('aria-label', 'Picture 魔法拍立得');
+  scene.setAttribute('aria-label', 'Picture 星空与流苏');
+  scene.style.setProperty('--picture-black', palette.black);
+  scene.style.setProperty('--picture-ink', palette.ink);
   scene.innerHTML = `
-    <div class="picture-composition"></div>
+    <canvas class="picture-sky" aria-hidden="true"></canvas>
     <div class="picture-controls">
       <button type="button" class="picture-upload">添加照片</button>
       <input type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden>
       <p class="picture-status" role="status"></p>
     </div>`;
-  for (const [name, color] of Object.entries(palette)) scene.style.setProperty(`--picture-${name}`, color);
-  scene.style.setProperty('--picture-aspect', stage.width / stage.height);
-  const composition = scene.querySelector('.picture-composition');
-  const upload = scene.querySelector('.picture-upload');
-  const input = scene.querySelector('input');
-  const status = scene.querySelector('.picture-status');
-  const sky = makeStageCanvas(composition);
-  const artwork = new Image();
-  artwork.className = 'picture-camera';
-  artwork.alt = '暖白和深黑的复古拍立得，镜片带冷蓝反光';
-  artwork.src = cameraUrl;
-  positionCamera(artwork);
-  composition.append(artwork);
-  const animation = makeStageCanvas(composition);
-  const front = new Image();
-  front.className = 'picture-front';
-  front.alt = '';
-  front.src = cameraUrl;
-  front.hidden = true;
-  front.style.clipPath = 'polygon(12% 87.8%, 74.6% 89%, 74.6% 91%, 12% 90%)';
-  positionCamera(front);
-  composition.append(front);
-  const pause = document.createElement('button');
-  pause.className = 'picture-pause';
-  pause.type = 'button';
-  pause.style.left = `${100 * camera.buttonX / stage.width}%`;
-  pause.style.top = `${100 * camera.buttonY / stage.height}%`;
-  composition.append(pause);
   host.append(scene);
-
-  const field = makeStarField();
+  const canvas = scene.querySelector('canvas');
+  const upload = scene.querySelector('button');
+  const input = scene.querySelector('input');
+  const status = scene.querySelector('[role="status"]');
   const motion = matchMedia('(prefers-reduced-motion: reduce)');
+  const drawing = makeSky(canvas, canvas.getContext('2d'), motion);
+  drawing.fit();
+  if (motion.matches) drawing.settle();
+  const observer = new ResizeObserver(drawing.fit);
+  observer.observe(canvas);
+  motion.addEventListener('change', () => {
+    if (motion.matches) drawing.settle();
+  }, { signal });
+
+  // CDN 延迟或离线时使用同一套星形顶点的 Canvas 墨线路径。
+  const sketch = document.createElement('script');
+  sketch.src = config.display.roughUrl;
+  sketch.addEventListener('load', () => {
+    if (window.rough) drawing.setRough(window.rough.canvas(canvas));
+  }, { signal });
+  document.head.append(sketch);
+
   let library;
-  let records = [];
-  let print;
-  let demo;
-  let nextIndex = 0;
-  let cycle = 0;
-  let seconds = 0;
-  let paused = false;
-  let preparing = true;
-  upload.disabled = true;
-
-  function setPaused(value) {
-    paused = value;
-    pause.setAttribute('aria-label', paused ? '继续播放' : '暂停动画');
-    pause.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">${paused
-      ? '<path d="m5 2 9 6-9 6z"/>'
-      : '<path d="M4 3h2.5v10H4zm5.5 0H12v10H9.5z"/>'}</svg>`;
-  }
-
-  async function prepareNext() {
-    preparing = true;
-    if (!records.length) {
-      print = demo;
-    } else {
-      print = null;
-      const count = records.length;
-      for (let i = 0; i < count && !print; i++) {
-        const photo = records[nextIndex++ % count];
-        try {
-          await withPhotoImage(photo.blob, image => {
-            if (!signal.aborted) print = makePrint(image);
-          });
-        } catch {
-          if (!signal.aborted) status.textContent = `无法读取「${photo.name}」`;
-        }
-        if (signal.aborted) return;
-      }
-    }
-    cycle = 0;
-    preparing = false;
-  }
-
-  async function load() {
-    const sample = new Image();
-    sample.src = previewPhoto;
-    const sampleReady = sample.decode().then(() => {
-      if (!signal.aborted) demo = makePrint(sample);
-    }).catch(() => {});
-    try {
-      const db = await openPhotoLibrary();
-      if (signal.aborted) {
-        db.close();
-        return;
-      }
-      library = db;
-      records = await db.list();
-    } catch {
-      if (!signal.aborted) status.textContent = '无法读取本地照片库。';
-    }
-    await sampleReady;
-    if (signal.aborted) return;
-    upload.disabled = !library;
-    await prepareNext();
-  }
-
-  setPaused(false);
-  drawSky(sky, field, 0);
-  pause.addEventListener('click', () => setPaused(!paused), { signal });
   upload.addEventListener('click', () => input.click(), { signal });
   input.addEventListener('change', async () => {
     const files = Array.from(input.files);
     input.value = '';
     if (!files.length) return;
     upload.disabled = true;
-    let added = 0;
+    let saved = 0;
     let failed = 0;
-    for (const file of files) {
-      try {
-        const photo = await preparePhoto(file, signal);
-        const id = await library.add(photo);
-        if (signal.aborted) return;
-        records.push({ ...photo, id });
-        added++;
-      } catch {
-        if (signal.aborted) return;
-        failed++;
+    try {
+      library ??= await openPhotoLibrary();
+      if (signal.aborted) {
+        library.close();
+        return;
       }
+      for (const file of files) {
+        try {
+          const photo = await preparePhoto(file, signal);
+          await library.add(photo);
+          saved++;
+        } catch {
+          if (signal.aborted) return;
+          failed++;
+        }
+      }
+      if (!signal.aborted) {
+        status.textContent = `已在本地保存 ${saved} 张${failed ? `，${failed} 张无法读取或保存` : ''}。出片将在后续阶段接入。`;
+      }
+    } catch {
+      if (!signal.aborted) status.textContent = '无法打开本地照片库。';
+    } finally {
+      if (!signal.aborted) upload.disabled = false;
     }
-    if (added) nextIndex = records.length - added;
-    status.textContent = `已保存 ${added} 张${failed ? `，${failed} 张无法读取或保存` : ''}`;
-    upload.disabled = false;
-    if (added && !print && !preparing) void prepareNext();
   }, { signal });
-  void load();
-
   return {
-    update(dt) {
-      if (paused || document.hidden) return;
-      const elapsed = Math.min(dt, timing.maxStep);
-      seconds += elapsed;
-      if (!motion.matches) drawSky(sky, field, seconds);
-      if (preparing || !print) return;
-      cycle += elapsed;
-      front.hidden = !paintPrint(animation, cycle, print, motion.matches);
-      if (cycle >= cycleEnd) void prepareNext();
-    },
+    update: drawing.update,
     destroy() {
       lifetime.abort();
+      observer.disconnect();
+      sketch.remove();
       library?.close();
       scene.remove();
     },
