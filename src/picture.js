@@ -1,4 +1,5 @@
 import { picture as config } from './config.js';
+import { makeCamera } from './picture-camera.js';
 import { makeSky } from './picture-sky.js';
 import { makeImpactSound } from './picture-sound.js';
 import { openPhotoLibrary, preparePhoto } from './picture-storage.js';
@@ -16,6 +17,8 @@ export function mountPicture(host) {
   scene.style.setProperty('--picture-ink', palette.ink);
   scene.innerHTML = `
     <canvas class="picture-sky" aria-hidden="true"></canvas>
+    <canvas class="picture-camera" aria-hidden="true"></canvas>
+    <button type="button" class="picture-shutter" aria-label="拍立得快门" hidden></button>
     <div class="picture-controls">
       <div class="picture-actions">
         <button type="button" class="picture-sound"></button>
@@ -46,10 +49,16 @@ export function mountPicture(host) {
 
   const drawing = makeSky(canvas, motion, sound.play);
   drawing.fit();
-  const observer = new ResizeObserver(drawing.fit);
+  const cameraCanvas = scene.querySelector('.picture-camera');
+  const camera = makeCamera(cameraCanvas, scene.querySelector('.picture-shutter'), motion, signal);
+  const observer = new ResizeObserver(() => {
+    drawing.fit();
+    camera.fit();
+  });
   observer.observe(canvas);
   motion.addEventListener('change', () => {
     if (motion.matches) drawing.settle();
+    camera.settle();
   }, { signal });
 
   let library;
@@ -87,7 +96,10 @@ export function mountPicture(host) {
     }
   }, { signal });
   return {
-    update: drawing.update,
+    update(dt) {
+      drawing.update(dt);
+      camera.update(dt);
+    },
     destroy() {
       lifetime.abort();
       observer.disconnect();
