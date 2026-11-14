@@ -91,6 +91,37 @@ export function makeNextRoute(stage) {
   const previous = screen.querySelector('.orbit-prev');
   const next = screen.querySelector('.orbit-next');
   const childTitle = child.querySelector('h1');
+  const childPlaceholder = childTitle.parentElement;
+  const pictureHost = document.createElement('div');
+  pictureHost.hidden = true;
+  child.append(pictureHost);
+  let pictureScene;
+  let pictureLoad;
+
+  function syncPicture(active) {
+    childPlaceholder.hidden = active;
+    pictureHost.hidden = !active;
+    if (!active) {
+      pictureLoad = null;
+      pictureScene?.destroy();
+      pictureScene = null;
+      pictureHost.replaceChildren();
+      return;
+    }
+    if (pictureLoad) return;
+    pictureHost.textContent = '正在加载拍立得…';
+    const load = import('./picture.js');
+    pictureLoad = load;
+    load.then(({ mountPicture }) => {
+      if (pictureLoad !== load) return;
+      pictureHost.replaceChildren();
+      pictureScene = mountPicture(pictureHost);
+    }).catch(error => {
+      if (pictureLoad !== load) return;
+      pictureHost.textContent = '拍立得加载失败，请返回板块页后重试。';
+      console.error('Picture scene unavailable:', error);
+    });
+  }
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const ellipse = svg('ellipse', { class: 'orbit-ellipse' }, lines);
   const points = Array.from({ length: 5 }, (_, i) =>
@@ -284,6 +315,7 @@ export function makeNextRoute(stage) {
     stage.classList.toggle('routed-away', Boolean(page));
     screen.hidden = page !== 'orbit';
     child.hidden = page !== 'child';
+    syncPicture(page === 'child' && sections[sub].id === 'picture');
     if (page === 'orbit') fit();
     if (page === 'child') child.querySelector('a').focus({ preventScroll: true });
   }
@@ -423,7 +455,7 @@ export function makeNextRoute(stage) {
       if (target?.closest('.orbit-card.is-front[data-section="music"]')?.querySelector('.music-pause')) {
         return Boolean(target.closest('.music-pause'));
       }
-      return Boolean(target?.closest('.orbit-card, .orbit-arrow, .orbit-back'));
+      return Boolean(target?.closest('.orbit-card, .orbit-arrow, .orbit-back, .picture-scene button:not(:disabled)'));
     },
     cursorMode(x, y) {
       if (page !== 'orbit' || reduced.matches) return '';
@@ -432,6 +464,10 @@ export function makeNextRoute(stage) {
       return target && interaction.contains(target) && !isControl(target) ? 'grab' : '';
     },
     update(dt) {
+      if (pictureScene) {
+        if (dt) pictureScene.update(dt);
+        return;
+      }
       if (page !== 'orbit' || !dt) return;
       const rawDt = dt;
       dt = Math.min(dt, .05);
