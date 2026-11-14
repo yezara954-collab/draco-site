@@ -1,10 +1,11 @@
 import {
   picture, TASSEL_COUNT, TASSEL_LENGTH_MIN, TASSEL_LENGTH_MAX, CHROMATIC_OFFSET,
-  WIND_BASE, WIND_GUST_STRENGTH, WIND_GUST_INTERVAL, SWAY_AMPLITUDE,
+  STAR_SIZE_MIN, STAR_SIZE_MAX, STAR_GLOW_SCALE, STAR_GLOW_ALPHA,
   DROP_INTERVAL_MIN, DROP_INTERVAL_MAX, DROP_COUNT_MIN, DROP_COUNT_MAX, DROP_FALL_TIME, SPARK_COUNT,
 } from './config.js';
+import { createRope, makeWind, stepRope, sampleCurve } from './picture-rope.js';
 
-const { palette, display, sky, tassel, wind, falling, ground } = picture;
+const { palette, display, sky, tassel, rope, falling, ground } = picture;
 const tau = 2 * Math.PI;
 const clamp = x => Math.max(0, Math.min(1, x));
 const mix = (a, b, t) => a + (b - a) * t;
@@ -50,7 +51,7 @@ function shape(ctx, arms, outer, inner, seed) {
 
 function makeSprites() {
   const star = (arms, warm, seed) => sprite(100, ctx => {
-    glow(ctx, warm ? palette.goldGlow : palette.coldGlow, 42, .52);
+    glow(ctx, warm ? palette.goldGlow : palette.coldGlow, 20 * STAR_GLOW_SCALE, STAR_GLOW_ALPHA);
     ctx.fillStyle = warm ? palette.goldCore : palette.white;
     shape(ctx, arms, 20, arms === 4 ? 5 : 9, seed);
     ctx.globalAlpha = .39;
@@ -96,9 +97,11 @@ export function makeSky(canvas, motion, onImpact) {
     size: range(i < sky.count ? [1.7, 4.6] : [1.4, 3.4]), dust: i >= sky.count,
   }));
   let width = 1, height = 1, mobile = false;
-  let clock = 0, strands = [], gusts = [], drops = [], sparks = [], ripples = [];
+  let clock = 0, strands = [], drops = [], sparks = [], ripples = [];
+  let physicsTime = 0, accumulator = 0;
   let nextDrop = range([DROP_INTERVAL_MIN, DROP_INTERVAL_MAX]);
-  let nextGust = 0;
+  const windRandom = makeRandom(display.seed + 612);
+  const windAt = makeWind(bounds => range(bounds, windRandom), windRandom);
   let horizon;
 
   function fit() {
@@ -129,14 +132,20 @@ export function makeSky(canvas, motion, onImpact) {
       }
       const phase = layout() * tau;
       const wobble = range([.025, .082], layout);
-      return {
-        x, length, beads, phase, wobble, radius: range(tassel.starRadius, layout) * (mobile ? .76 : 1),
+      const strand = {
+        x, length, beads, phase, sizeFactor: range([0, 1], layout),
         glintAt: i % tassel.glintEvery === 0 ? range([.32, .81], layout) : 0,
         warm: Boolean(i % 2) !== (layout() < .085), arms: integer(0, 1, layout),
-        angle: motion.matches ? 0 : Math.sin(phase) * wobble,
-        speed: Math.cos(phase) * wobble * Math.sqrt(wind.gravity / length),
-        damping: range(wind.damping, layout), lag: range(wind.lag, layout), next: 0, regrow: -Infinity,
+        next: 0, regrow: -Infinity,
       };
+      // 保留原有的布局随机序列，物理用独立种子。
+      layout();
+      layout();
+      const radius = mix(...tassel.starScale, strand.sizeFactor) * Math.min(w, h);
+      strand.radius = Math.min(STAR_SIZE_MAX, Math.max(STAR_SIZE_MIN, radius));
+      strand.rope = createRope(length, phase, makeRandom(display.seed + i * 917), motion.matches, wobble);
+      strand.lag = strand.rope.lag;
+      return strand;
     });
     const span = strands.at(-1).x - strands[0].x || 1;
     const first = strands[0].x;
@@ -172,8 +181,9 @@ export function makeSky(canvas, motion, onImpact) {
 
   function star(strand, x, y, fraction, alpha) {
     const pulse = wave(clock * 1.8 + strand.phase);
+    const radius = Math.min(STAR_SIZE_MAX, Math.max(STAR_SIZE_MIN, strand.radius * mix(.92, 1.05, pulse)));
     stamp(sprites.stars[Number(strand.warm)][strand.arms], x, y,
-      strand.radius * tassel.glow * 2 * fraction * mix(.90, 1.05, pulse), alpha * mix(.72, 1, pulse));
+      radius * 5 * fraction, alpha * mix(.72, 1, pulse));
   }
 
   function paint() {
@@ -201,26 +211,38 @@ export function makeSky(canvas, motion, onImpact) {
     }
 
     for (const strand of strands) {
-      const dx = Math.sin(strand.angle) * strand.length;
-      const dy = Math.cos(strand.angle) * strand.length;
+      sampleCurve(strand.rope, accumulator / rope.step);
+      const { samples } = strand.rope;
+      const end = samples.at(-1);
+      const total = end.distance;
+      let cursor = 1;
+      let beadX, beadY;
+      const locate = f => {
+        const distance = f * total;
+        while (cursor < samples.length - 1 && samples[cursor].distance < distance) cursor++;
+        const a = samples[cursor - 1], b = samples[cursor];
+        const t = (distance - a.distance) / Math.max(.00001, b.distance - a.distance);
+        beadX = strand.x + mix(a.x, b.x, t);
+        beadY = mix(a.y, b.y, t);
+      };
       const shimmer = clock + strand.phase;
       for (const bead of strand.beads) {
-        const f = bead.f;
-        const x = strand.x + dx * (f + .10 * f * (1 - f));
-        const y = dy * f;
         const pulse = wave(shimmer * bead.speed + bead.phase);
         const opacity = mix(...(bead.accent ? tassel.accentOpacity : tassel.pearlOpacity), pulse);
         const image = bead.accent ? sprites.accents[Number(mobile)][Number(bead.warm)]
           : bead.warm ? sprites.gold : sprites.white;
-        stamp(image, x, y, bead.accent ? 16 : 3.8, opacity);
+        locate(bead.f);
+        stamp(image, beadX, beadY, bead.accent ? 16 : 3.8, opacity);
       }
       if (strand.glintAt) {
         const f = strand.glintAt;
         const pulse = wave(clock * 1.3 + strand.phase);
-        star(strand, strand.x + dx * (f + .10 * f * (1 - f)), dy * f, .40, pulse * .57);
+        cursor = 1;
+        locate(f);
+        star(strand, beadX, beadY, .40, pulse * .57);
       }
       const growth = clamp((clock - strand.regrow) / tassel.regrowFade);
-      if (growth > 0) star(strand, strand.x + dx, dy + strand.radius * .44, mix(.62, 1, growth), growth);
+      if (growth > 0) star(strand, strand.x + end.x, end.y + strand.radius * .44, mix(.62, 1, growth), growth);
     }
 
     for (const drop of drops) {
@@ -289,38 +311,24 @@ export function makeSky(canvas, motion, onImpact) {
 
   function update(dt) {
     if (motion.matches || document.hidden) return;
-    dt = Math.min(dt, display.maxStep);
-    clock += dt;
-    if (clock >= nextGust) {
-      gusts.push({ start: clock, duration: range(wind.gustLife), strength: range(WIND_GUST_STRENGTH) * (rng() < .5 ? -1 : 1) });
-      nextGust = clock + range(WIND_GUST_INTERVAL);
-    }
-    gusts = gusts.filter(gust => clock < gust.start + gust.duration + wind.lag[1]);
-    for (const strand of strands) {
-      const local = clock - strand.lag;
-      let force = WIND_BASE * wind.frequencies.reduce((sum, f, i) =>
-        sum + Math.sin(local * f + strand.phase * (i + 1)) / (i + 1), 0);
-      for (const gust of gusts) {
-        const p = (local - gust.start) / gust.duration;
-        if (p > 0 && p < 1) force += Math.sin(p * Math.PI) ** 2 * gust.strength;
-      }
-      const damping = strand.damping;
-      const individual = .32 * Math.sin(local * (.75 + 2.7 / Math.sqrt(strand.length)) + strand.phase);
-      strand.speed += (force + individual - damping * strand.speed - wind.gravity / strand.length * Math.sin(strand.angle)) * dt;
-      strand.angle += strand.speed * dt;
-      if (Math.abs(strand.angle) > SWAY_AMPLITUDE) {
-        strand.angle = Math.sign(strand.angle) * SWAY_AMPLITUDE;
-        strand.speed *= -.22;
-      }
+    clock += Math.min(dt, display.maxStep);
+    accumulator += Math.min(dt, rope.maxCatchup);
+    while (accumulator >= rope.step) {
+      physicsTime += rope.step;
+      const force = windAt(physicsTime, width);
+      for (const strand of strands) stepRope(strand.rope, force(strand));
+      accumulator -= rope.step;
     }
     if (clock >= nextDrop) releaseGroup();
     drops = drops.filter(drop => {
       if (clock < drop.start) return true;
       const strand = drop.strand;
       if (!drop.started) {
-        drop.x = strand.x + Math.sin(strand.angle) * strand.length;
-        drop.y = Math.cos(strand.angle) * strand.length + strand.radius * .44;
-        drop.vx = Math.max(-48, Math.min(48, strand.speed * strand.length * .32));
+        const tip = strand.rope.nodes.at(-1);
+        const alpha = accumulator / rope.step;
+        drop.x = strand.x + mix(tip.fromX, tip.x, alpha);
+        drop.y = mix(tip.fromY, tip.y, alpha) + strand.radius * .44;
+        drop.vx = Math.max(-48, Math.min(48, (tip.x - tip.px) / rope.step * .32));
         drop.started = true;
         strand.regrow = Infinity;
       }
@@ -337,7 +345,12 @@ export function makeSky(canvas, motion, onImpact) {
     fit, update,
     settle() {
       clearFalls();
-      for (const strand of strands) strand.angle = strand.speed = 0;
+      for (const { rope: { nodes, segment } } of strands) {
+        nodes.forEach((node, i) => {
+          node.x = node.fromX = node.px = 0;
+          node.y = node.fromY = node.py = i * segment;
+        });
+      }
       paint();
     },
   };
