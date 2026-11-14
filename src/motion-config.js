@@ -199,30 +199,14 @@ export const ORBIT_SKY = {
   // 星空数量，以及画布像素上限和持续低帧率降级／恢复阈值。
 };
 
-// Picture：坐标以 1600 × 1000 舞台左上角为原点，时间单位为秒。
+// Picture 横屏舞台，所有位置为 1600 × 900 设计坐标，时长为秒。
 export const PICTURE = {
-  stage: { width: 1600, height: 1000, maxDpr: 1.5 },
-  stars: { count: 104, seed: 7841, color: 0xe6ecdc, crossColor: 0xb8cfc1, radius: [.5, 1.55], alpha: [.12, .56] },
-  camera: {
-    x: 800, y: 455, width: 412, height: 340, // 机身中心和程序绘图的参考尺寸
-    slot: { x: 0, y: 133, width: 296, height: 16 }, // 相对机身中心的出片口
-    shake: 4, flash: .66, // 横向震动（像素）和镜头亮度
-  },
-  paper: {
-    width: 230, height: 276, inset: 13, foot: 38, // 相纸尺寸、白边和底边
-    x: 415, y: 287, angle: -12, // 相纸停留的舞台位置和角度
-  },
-  colors: {
-    body: 0x282f2c, shadow: 0x0a0d0d, shell: 0x424b45, seam: 0x727b6f,
-    gold: 0xc3ab7d, lens: 0x485b55, flash: 0xe6fcf0, paper: 0xf4eee1, picture: 0x171b18,
-    stripes: [0xb96b5b, 0xbc9962, 0x8b9d79, 0x6f9790],
-  },
-  timing: {
-    charge: .26, eject: .82, float: 1.12, hold: .96, fade: .55, reducedFade: .23,
-    maxFrameStep: .12, // 严重掉帧时的单帧时间上限；恢复前台由现有时钟重置
-  },
-  photo: {
-    maxEdge: 1600, thumbnailEdge: 160, quality: .88, thumbnailQuality: .78,
-    maxBytes: 25 * 1024 * 1024, // 单个原图最大 25 MiB；保存缩放图和独立缩略图
-  },
+  stage: { width: 1600, height: 900, maxDpr: 1.5 },
+  palette: { blue: '#0245FE', royal: '#1044CF', cobalt: '#003ABE', paper: '#fcf7ed', cold: '#c2dcff', white: '#f5faff', gold: '#ffe5a9' },
+  camera: { x: 549, y: 437, width: 502, height: 350, slotX: 763, slotY: 736, slotAngle: 0.015, buttonX: 896, buttonY: 654 },
+  paper: { width: 134, height: 168, x: 730, y: 293, angle: -.13 },
+  timing: { delay: .68, eject: .85, rise: 1.24, hover: .78, fold: 1.54, flight: 2.35, rest: .4, maxStep: .1 },
+  flight: { controls: [[842, 215], [1188, 330], [1372, 177], [1700, 94]], scale: .54, trail: .32 }, // 贝塞尔飞行曲线及光丝存续比例
+  stars: { count: 94, seed: 5257, trailCount: 27, drapeCount: 20 }, // 背景星点、尾迹碎星和悬线数量
+  photo: { maxEdge: 1600, thumbnailEdge: 160, quality: .88, thumbnailQuality: .78, maxBytes: 25 * 1024 * 1024 },
 };

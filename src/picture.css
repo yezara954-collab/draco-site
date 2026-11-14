@@ -1,144 +1,75 @@
 .picture-scene {
   position: absolute;
   inset: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  color: #ece8da;
-  background: #000;
-}
-.picture-stage-area {
-  position: relative;
+  container-type: size;
   display: grid;
   place-items: center;
-  container-type: size;
-  min-height: 0;
+  overflow: hidden;
+  color: var(--picture-white);
+  background: radial-gradient(ellipse at 47% 39%, var(--picture-blue) 11%, var(--picture-royal) 68%, var(--picture-cobalt) 100%);
 }
-.picture-stage {
+.picture-composition {
   position: relative;
-  width: min(100cqw, calc(100cqh * var(--picture-stage-ratio)));
-  aspect-ratio: var(--picture-stage-ratio);
+  width: min(100cqw, calc(100cqh * var(--picture-aspect)));
+  aspect-ratio: var(--picture-aspect);
+  isolation: isolate;
 }
-.picture-stage canvas {
+.picture-composition canvas,
+.picture-camera,
+.picture-front {
   position: absolute;
-  inset: 0;
-  display: block;
-  width: 100% !important;
-  height: 100% !important;
   pointer-events: none;
 }
-.picture-shutter {
-  position: absolute;
-  z-index: 1;
-  border: 1px solid transparent;
-  border-radius: 20%;
-  background: transparent;
-  cursor: pointer;
-}
-.picture-shutter:not(:disabled):hover {
-  border-color: #d5bf9030;
-  box-shadow: 0 0 1.5rem #c8e3c816;
-}
-.picture-shutter:disabled { cursor: default; }
-.picture-scene .picture-render-error {
-  position: absolute;
-  z-index: 1;
-  top: 40%;
-  inset-inline: 1rem;
-  color: #ffc5ad;
-}
-.picture-scene :is(button, input):focus-visible {
-  outline: 2px solid #d4efd7;
-  outline-offset: 4px;
-}
-.picture-library {
-  width: min(100% - 32px, 38rem);
-  margin: 0 auto max(1rem, env(safe-area-inset-bottom));
-  padding: .85rem 1rem;
-  border: 1px solid #b9b79040;
-  border-radius: 1rem;
-  background: #0c100ef2;
-  text-align: left;
-  font: .8rem/1.4 system-ui, sans-serif;
-}
-.picture-library-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: .5rem 1rem;
-}
-.picture-library-title {
-  margin: 0;
-  font: 400 1.45rem/1.2 "Bodoni Moda", Georgia, serif;
-}
-.picture-upload {
-  min-height: 36px;
-  padding: .35rem .85rem;
-  border: 1px solid #bdae7e80;
-  border-radius: 2rem;
-  background: #1d2820;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.picture-upload:disabled { opacity: .5; cursor: default; }
-.picture-library .picture-status {
-  margin: .55rem 0 0;
-  min-height: 1.4em;
-  max-height: 3.9em;
-  overflow: auto;
-  color: #bfc9bb;
-  font: inherit;
-  overflow-wrap: anywhere;
-}
-.picture-status[data-error="true"] { color: #ffc5ad; }
-.picture-thumbnails {
-  display: flex;
-  gap: .75rem;
-  overflow-x: auto;
-  margin: .6rem 0 0;
-  padding: .35rem;
-  list-style: none;
-}
-.picture-thumbnails:empty { display: none; }
-.picture-thumbnail {
-  flex: 0 0 auto;
-  position: relative;
-}
-.picture-select {
-  display: block;
-  width: 64px;
-  height: 66px;
-  padding: 4px 4px 10px;
-  border: 1px solid #a59a82;
-  border-radius: 4px;
-  background: #ada99c;
-  cursor: pointer;
-}
-.picture-select[aria-pressed="true"] {
-  background: #f4eee1;
-  outline: 1px solid #d5d9af;
-  outline-offset: 2px;
-}
-.picture-select img {
-  display: block;
+.picture-composition canvas {
+  inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  border-radius: 1px;
 }
-.picture-delete {
+.picture-camera, .picture-front { object-fit: fill; }
+.picture-camera {
+  filter: drop-shadow(9px 21px 19px #001f8960);
+}
+.picture-controls {
+  z-index: 1;
   position: absolute;
-  top: -4px;
-  right: -6px;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid #baa789;
-  border-radius: 50%;
-  background: #161c17;
+  right: max(clamp(1rem, 4vw, 4rem), env(safe-area-inset-right));
+  bottom: max(clamp(1rem, 4vh, 3rem), env(safe-area-inset-bottom));
+  display: grid;
+  justify-items: end;
+  gap: .35rem;
+}
+.picture-controls .picture-status {
+  max-width: min(80vw, 24rem);
+  color: var(--picture-white);
+  margin: 0;
+  font: .72rem/1.45 system-ui, sans-serif;
+  overflow-wrap: anywhere;
+}
+.picture-upload {
+  border: 0;
+  border-bottom: 1px solid #eef6ff8a;
+  background: transparent;
   color: inherit;
-  font: 1rem/1 system-ui, sans-serif;
+  padding: .55rem .06rem .34rem;
+  font: .83rem/1.3 system-ui, sans-serif;
+  letter-spacing: .09em;
   cursor: pointer;
 }
-.picture-delete:disabled { opacity: .5; cursor: default; }
+.picture-upload:disabled { opacity: .5; cursor: wait; }
+.picture-pause {
+  z-index: 2;
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: max(4.2%, 36px);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--picture-white);
+  cursor: pointer;
+}
+.picture-pause svg { width: clamp(8px, 23%, 14px); }
+.picture-scene button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.picture-upload:hover { border-color: #fff; }
