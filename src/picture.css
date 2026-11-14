@@ -44,3 +44,11 @@
   font: .72rem/1.35 system-ui, sans-serif;
   text-align: right;
 }
+.picture-actions { display: flex; align-items: center; gap: .55rem; }
+.picture-sound {
+  width: 32px; height: 36px; display: grid; place-items: center;
+  border: 0; padding: 0; background: transparent; color: inherit; opacity: .66; cursor: pointer;
+}
+.picture-sound svg { width: 16px; height: 16px; }
+.picture-sound:hover, .picture-sound:focus-visible { opacity: 1; }
+.picture-sound:focus-visible { outline: 1px solid currentColor; outline-offset: 1px; }

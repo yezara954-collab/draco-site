@@ -1,31 +1,38 @@
-// Picture 专用配置。长度比例以当前画布为准，时间用秒，角度用弧度。
+// Picture 阶段 1。时间用秒，珠距和色散用 CSS 像素，流苏长度为屏高比例。
+export const TASSEL_COUNT = { desktop: 56, mobile: 26 }; // 桌面和手机流苏数量
+export const TASSEL_LENGTH_MIN = .12;
+export const TASSEL_LENGTH_MAX = .55;
+export const CHROMATIC_OFFSET = 1.45; // RGB 边缘偏移，设为 0 可关闭
+export const WIND_BASE = .24;
+export const WIND_GUST_STRENGTH = [.12, .48];
+export const WIND_GUST_INTERVAL = [1.8, 5.2];
+export const SWAY_AMPLITUDE = .102; // 最大摆角（弧度）
+export const DROP_INTERVAL_MIN = 1.5;
+export const DROP_INTERVAL_MAX = 3.5;
+export const DROP_COUNT_MIN = 2;
+export const DROP_COUNT_MAX = 3;
+export const DROP_FALL_TIME = [.7, 1.1];
+export const SPARK_COUNT = [8, 14];
+export const SOUND_ENABLED = true;
+export const SOUND_VOLUME = .05;
+
 export const picture = {
   palette: {
-    black: '#000000', blackTint: '#05060A', ink: '#EFE8D5', gold: '#F2C641',
-    accent: '#E8603C', // 留给后续的快门及夹子
+    black: '#000', ink: '#EFE8D5', gold: '#F2C641', accent: '#E8603C',
+    white: '#FFFFFF', coldGlow: '#DCE7FF', goldCore: '#FFE08A', goldGlow: '#FFC83D',
+    fringes: ['#ff6974', '#72f4a0', '#708bff'],
   },
-  display: {
-    maxDpr: 2, mobileWidth: 640, mobileFactor: .5, seed: 8189,
-    maxStep: .05, fullSizeWidth: 950, starScale: [.68, 1], // 单帧步长上限与窄屏星芒缩放
-    roughUrl: 'https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.js', // 固定手绘路径库版本
-  },
-  sky: { count: 78, flares: 6, size: [.35, 1.05], period: [5, 14], opacity: [.09, .45] },
+  display: { maxDpr: 2, mobileWidth: 640, mobileFactor: .5, seed: 8189, maxStep: .05 },
+  sky: { count: 82, dust: 110, flares: 6, period: [4, 12] }, // 背景星与缓漂星尘
   tassel: {
-    count: 11, span: [.065, .935], length: [.106, .278],
-    beadCount: [3, 6], starRadius: [6.6, 12.8], lineWidth: .65,
-    // 细线透明度、星芒微光和长出新星的时长
-    lineOpacity: .38, glow: 5, regrow: 1.55,
+    spacing: [3, 5], accentEvery: [6, 12], starRadius: [6, 16], glow: 2.45,
+    glintEvery: 7, // 每隔数条流苏在珠线上增加一颗小星芒
+    pearlOpacity: [.32, .86], accentOpacity: [.52, .94], regrowDelay: [1, 2], regrowFade: .62,
   },
-  wind: {
-    pulseSpeed: .42, crossSpeed: .66, damping: .82, gravity: 520,
-    steady: .21, gust: .34, gustEvery: 14, gustDuration: 3.6, travel: 2.8,
-  },
-  falling: {
-    // 第一颗落星出现的等待时间，后续随机间隔和重力加速度
-    first: [4, 6], interval: [7, 13], gravity: 485, airDrag: .30,
-    tailCount: 16, tailStep: .025, sparkCount: 10, sparkLife: [.40, .88],
-  },
+  wind: { frequencies: [.49, .91, 1.37], damping: [.38, 1.06], gravity: 860, gustLife: [.6, 2.5], lag: [.03, .65] },
+  falling: { stagger: .25, tailCount: 25, tailDuration: .18, sparkLife: [.28, .65], rippleLife: .56 },
   ground: { y: .88, span: [.09, .91], alpha: .19, lineWidth: .72, segments: 7, waviness: 2.1 },
+  sound: { voices: 6, noiseTime: [.03, .06], toneTime: [.08, .20], pitch: [2000, 6000], highpass: 3100 },
   // 后续阶段的参数先保存在此处，阶段 1 不运行以下行为。
   camera: {
     x: .50, y: .68, asteroidSize: .08,
