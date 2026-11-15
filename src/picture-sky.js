@@ -192,6 +192,7 @@ export function makeSky(canvas, motion, onImpact, onChime) {
     const radius = Math.min(STAR_SIZE_MAX, Math.max(STAR_SIZE_MIN, strand.radius * mix(.92, 1.05, pulse)));
     stamp(sprites.stars[Number(strand.warm)][strand.arms], x, y,
       radius * 5 * fraction, alpha * mix(.72, 1, pulse));
+    return radius * fraction;
   }
 
   function paint() {
@@ -255,8 +256,8 @@ export function makeSky(canvas, motion, onImpact, onChime) {
       const visible = growth > 0;
       if (visible) {
         const x = strand.x + end.x, y = end.y + strand.radius * .44;
-        star(strand, x, y, mix(.62, 1, growth), growth);
         const lamp = strand.light;
+        lamp.coreRadius = star(strand, x, y, mix(.62, 1, growth), growth);
         lamp.x = x;
         lamp.y = y;
         lamp.warm = strand.warm;
@@ -280,8 +281,8 @@ export function makeSky(canvas, motion, onImpact, onChime) {
           fallY(drop, t), mix(6.4, 1.8, f), (1 - f) ** 1.4 * .91);
       }
       const x = drop.x + drop.vx * age, y = fallY(drop, age);
-      star(drop.strand, x, y, 1, .98);
       const lamp = fallingLights[fallingIndex] ?? (fallingLights[fallingIndex] = {});
+      lamp.coreRadius = star(drop.strand, x, y, 1, .98);
       fallingIndex++;
       lamp.x = x;
       lamp.y = y;

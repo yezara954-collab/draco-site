@@ -3,6 +3,8 @@ import { album as c, picture } from './config.js';
 const capacity = Math.max(1, Math.floor(c.STAR_SHADOW_MAX));
 const clamp = value => Math.max(0, Math.min(1, value));
 const mix = (a, b, t) => a + (b - a) * t;
+const maxRadiusScale = Math.max(1, Math.min(1.5, c.STAR_SHADOW_SCALE_MAX));
+const baseRadiusScale = Math.max(1, Math.min(maxRadiusScale, c.STAR_SHADOW_SCALE));
 
 export function makePageShadow(T) {
   // 负半径代表五角星。阴影投影在纸页片元上，翻页时仍被实际纸页轮廓裁切。
@@ -31,7 +33,8 @@ export function makePageShadow(T) {
             float angle = atan(p.x, p.y + 0.00001);
             float a = abs(mod(angle + sector, 2.0 * sector) - sector);
             float slope = inner * sin(sector) / (inner * sin(sector - a) + sin(a));
-            return 1.0 - smoothstep(-blur, blur, length(p) - slope * radius);
+            float feather = blur * 0.5;
+            return 1.0 - smoothstep(-feather, feather, length(p) - slope * radius);
           }
         `)
         .replace('#include <colorspace_fragment>', `#include <colorspace_fragment>
@@ -43,7 +46,7 @@ export function makePageShadow(T) {
             vec2 delta = pixel - shadow.xy;
             float radius = abs(shadow.z);
             float blur = uAlbumShadowBlur[i];
-            float reach = radius + blur;
+            float reach = radius + blur * 0.5;
             if (dot(delta, delta) >= reach * reach) continue;
             float shape = starSilhouette(delta, radius, blur, shadow.z < 0.0);
             transmission *= 1.0 - shadow.w * shape;
@@ -71,7 +74,6 @@ export function makePageShadow(T) {
     if (!c.STAR_SHADOW_ENABLED || !box || !stars?.length) return;
     const { left, right, top, bottom } = box;
     const [dx, dy] = c.STAR_SHADOW_OFFSET;
-    const [sizeMin, sizeMax] = c.STAR_SHADOW_SIZE;
     const depth = bottom - top;
     const maxGap = bottom * .72;
     let count = 0;
@@ -79,7 +81,7 @@ export function makePageShadow(T) {
       if (star.x < left || star.x > right || star.y >= bottom || (!star.falling && star.y >= top)) continue;
       const distance = Math.max(0, bottom - star.y);
       const near = clamp(1 - distance / maxGap);
-      const score = near * .85 + star.alpha * .15;
+      const score = star.y;
       if (count === limit && score <= candidates[count - 1].score) continue;
       let at = Math.min(count, limit - 1);
       while (at > 0 && score > candidates[at - 1].score) {
@@ -90,18 +92,18 @@ export function makePageShadow(T) {
       const y = star.falling ? star.y : receiver;
       Object.assign(candidates[at], {
         score, near, x: star.x + dx * scale, y: y + dy * scale,
-        visibility: star.shadowAlpha ?? star.alpha, five: star.arms === 5,
+        visibility: star.shadowAlpha ?? star.alpha, five: star.arms === 5, coreRadius: star.coreRadius,
       });
       count = Math.min(limit, count + 1);
     }
     // WebGL 的纵坐标以画布底边为原点，与页面坐标方向相反。
     for (let i = 0; i < count; i++) {
-      const { near, x, y, visibility, five } = candidates[i];
-      const radius = mix(sizeMax, sizeMin, near) * scale * .5;
+      const { near, x, y, visibility, five, coreRadius } = candidates[i];
+      const radius = Math.max(c.STAR_SHADOW_MIN_RADIUS, coreRadius * mix(maxRadiusScale, baseRadiusScale, near));
       const alpha = mix(c.STAR_SHADOW_ALPHA_MIN, c.STAR_SHADOW_ALPHA_MAX, near) * visibility;
       uniforms.uAlbumShadows.value[i].set(x, cssHeight - y, five ? -radius : radius, alpha);
       uniforms.uAlbumShadowBlur.value[i] =
-        mix(c.STAR_SHADOW_BLUR_MAX, c.STAR_SHADOW_BLUR_MIN, near) * Math.max(.65, scale);
+        mix(c.STAR_SHADOW_BLUR_MAX, c.STAR_SHADOW_BLUR_MIN, near);
     }
     uniforms.uAlbumShadowCount.value = count;
   }
