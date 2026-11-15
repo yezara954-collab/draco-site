@@ -1,9 +1,19 @@
 import { album as c, picture } from './config.js';
+import { makePageLight } from './picture-album-light.js';
 import { makeAlbumArt } from './picture-album-paper.js';
 import { frontArrival, integer, random } from './picture-album-air.js';
 
 const radians = x => x * Math.PI / 180;
-const flipInterval = () => random([c.FLIP_INTERVAL_MIN, c.FLIP_INTERVAL_MAX]);
+const flurryInterval = () => random([c.FLURRY_INTERVAL_MIN, c.FLURRY_INTERVAL_MAX]);
+const clamp = value => Math.max(0, Math.min(1, value));
+
+function pageProgress(t) {
+  const crest = .51;
+  if (t < .44) return crest * (1 - (1 - t / .44) ** 2.35);
+  if (t < .55) return crest + (t - .44) * .10;
+  const fall = clamp((t - .55) / .45);
+  return .521 + .479 * fall * fall * (3 - 2 * fall);
+}
 
 export function mountAlbum(T, canvas, air, motion) {
   const renderer = new T.WebGLRenderer({ canvas, alpha: true, antialias: true });
@@ -13,24 +23,21 @@ export function mountAlbum(T, canvas, air, motion) {
   const book = new T.Group();
   book.rotation.y = radians(c.BOOK_YAW_DEG);
   scene.add(book);
-  scene.add(new T.HemisphereLight(c.colors.skylight, c.colors.bouncedLight, c.AMBIENT_LIGHT));
-  const key = new T.DirectionalLight(c.colors.keyLight, c.KEY_LIGHT);
-  key.position.set(-3, 6, 2);
-  scene.add(key);
+  const pageLight = makePageLight(T);
 
   const camera = new T.PerspectiveCamera(c.CAMERA_FOV, 1, .1, 120);
   const elevation = radians(c.CAMERA_ELEV_DEG);
   const azimuth = radians(c.CAMERA_AZIMUTH_DEG);
   const counter = new T.Vector3();
-  let art, counts, pageIndex, mobile;
+  let art, stacks, mobile;
   let w = 0, h = 0, dpr = 0;
-  let clock = 0, nextFlip = flipInterval(), plans = [], active = [];
-  let introFlipped = false, handledGust = -1;
+  let clock = 0, nextFlip = flurryInterval(), plans = [], active = [];
+  let introFlipped = false, untilHero = integer(c.HERO_FLIP_EVERY), heroPending = false;
   let localWind = 0;
 
   function setStacks() {
     return art.stationary.map((stack, side) => stack.setHeight(
-      counts[side], art.pages[pageIndex[side] % art.pages.length],
+      stacks[side].length, art.pages[stacks[side].at(-1) ?? side],
     ));
   }
 
@@ -51,9 +58,10 @@ export function mountAlbum(T, canvas, air, motion) {
     if (art) disposeBook();
     mobile = isMobile;
     const count = Math.max(2, Math.round(c.PAGES_COUNT * (mobile ? picture.display.mobileFactor : 1)));
-    counts = [Math.floor(count / 2), Math.ceil(count / 2)];
-    pageIndex = [0, 1];
-    art = makeAlbumArt(T, book, count);
+    const variants = Array.from({ length: count }, (_, i) => i % c.FRAME_VARIANTS);
+    stacks = [variants.slice(0, Math.floor(count / 2)), variants.slice(Math.floor(count / 2))];
+    const ghostCount = Math.min(c.MOTION_BLUR_GHOSTS.length, c.MOTION_BLUR_ALPHA.length);
+    art = makeAlbumArt(T, book, count, pageLight, mobile ? Math.floor(ghostCount * picture.display.mobileFactor) : ghostCount);
     setStacks();
     plans = [];
     active = [];
@@ -94,7 +102,7 @@ export function mountAlbum(T, canvas, air, motion) {
     if (!art || isMobile !== mobile) build(isMobile);
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
-    air.resize(w, h, dpr, mobile);
+    air.resize(w, h, dpr);
     camera.clearViewOffset();
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -110,86 +118,94 @@ export function mountAlbum(T, canvas, air, motion) {
     const dx = (box.left + box.right) / 2 - w * c.BOOK_CENTER_X;
     const dy = box.bottom - h * picture.ground.y;
     camera.setViewOffset(w, h, dx, dy, w, h);
-    for (const { paper } of active) paper.mesh.visible = false;
+    const bounds = { left: box.left - dx, right: box.right - dx, top: box.top - dy, bottom: box.bottom - dy };
+    pageLight.fit(bounds, w, h, canvas, mobile);
+    const visiblePages = active.flatMap(({ paper }) => [paper.mesh, ...paper.ghosts]).filter(mesh => mesh.visible);
+    visiblePages.forEach(mesh => { mesh.visible = false; });
     renderer.render(scene, camera);
-    air.groundAt(canvas, { left: box.left - dx, right: box.right - dx, top: box.top - dy, bottom: box.bottom - dy });
-    for (const { paper } of active) paper.mesh.visible = true;
+    air.groundAt(canvas, bounds);
+    visiblePages.forEach(mesh => { mesh.visible = true; });
     renderer.render(scene, camera);
   }
 
-  function schedule(span, gap, wanted) {
+  function schedule(span, wanted, hero = false) {
     let at = clock;
-    const length = integer(span);
+    const factor = mobile ? picture.display.mobileFactor : 1;
+    const length = hero ? 1 : Math.max(1, Math.round(integer(span) * factor));
     for (let i = 0; i < length; i++) {
-      plans.push({ at, wanted });
-      at += random(gap);
+      plans.push({ at, wanted, hero });
+      at += random([c.FLURRY_STAGGER_MIN, c.FLURRY_STAGGER_MAX]);
     }
-    nextFlip = at + c.FLIP_DURATION_MIN + flipInterval();
+    nextFlip = clock + flurryInterval();
   }
 
-  function launch(wanted) {
+  function launch({ wanted, hero }) {
     const paper = art.moving.find(sheet => !sheet.mesh.visible);
     if (!paper) return false;
-    let from = wanted ?? (Math.random() < c.BACKFLIP_CHANCE ? 0 : 1);
-    if (counts[from] === 0) from = 1 - from;
-    if (counts[from] === 0) return false;
+    const from = stacks[wanted].length ? wanted : 1 - wanted;
+    if (!stacks[from].length) return false;
     const to = 1 - from;
-    const half = wanted == null && Math.random() < c.HALF_FLIP_CHANCE;
-    const start = c.COVER_DEPTH + counts[from] * c.PAGE_THICKNESS + .004;
-    const end = c.COVER_DEPTH + (counts[to] + 1) * c.PAGE_THICKNESS + .004;
-    paper.mesh.material = art.pages[pageIndex[from] % art.pages.length];
+    const start = c.COVER_DEPTH + stacks[from].length * c.PAGE_THICKNESS + .004;
+    const end = c.COVER_DEPTH + (stacks[to].length + 1) * c.PAGE_THICKNESS + .004;
+    const variant = stacks[from].pop();
+    paper.mesh.material = art.pages[variant];
     paper.mesh.visible = true;
-    active.push({ paper, from, to, half, start, end, time: clock, phase: Math.random() * 6,
-      duration: wanted == null ? random([c.FLIP_DURATION_MIN, c.FLIP_DURATION_MAX])
-        : random([c.FLIP_DURATION_MIN, (c.FLIP_DURATION_MIN + c.FLIP_DURATION_MAX) / 2]) });
-    if (!half) {
-      counts[from]--;
-      pageIndex[from]++;
-      setStacks();
-    }
+    active.push({ paper, from, to, start, end, time: clock, phase: Math.random() * 6, hero, variant,
+      duration: random(hero ? c.HERO_FLIP_DURATION : [c.FLURRY_PAGE_DURATION_MIN, c.FLURRY_PAGE_DURATION_MAX]) });
+    setStacks();
     return true;
   }
 
-  function update(dt, intro, wind) {
+  function update(dt, intro, wind, lights) {
     if (!art || motion.matches || document.hidden) return;
-    clock += Math.min(dt, picture.display.maxStep);
-    localWind += ((wind?.force ?? 0) / picture.rope.gravity - localWind) * Math.min(1, dt * 6);
+    const step = Math.min(dt, picture.display.maxStep);
+    clock += step;
+    localWind += ((wind?.force ?? 0) / picture.rope.gravity - localWind) * Math.min(1, step * 6);
     if (!introFlipped && intro >= frontArrival(c.BOOK_CENTER_X) && intro < c.INTRO_WIND_DURATION) {
       introFlipped = true;
-      schedule(c.INTRO_WIND_FLIP_COUNT, c.INTRO_WIND_FLIP_SPACING, c.INTRO_WIND_DIRECTION > 0 ? 0 : 1);
-    }
-    const gust = wind?.gust;
-    if (intro >= c.INTRO_WIND_DURATION && gust && gust.id !== handledGust &&
-        Math.abs(gust.force) > c.GUST_THRESHOLD && !plans.length && !active.length) {
-      handledGust = gust.id;
-      schedule(c.GUST_FLIP_COUNT, c.GUST_FLIP_SPACING, gust.force > 0 ? 0 : 1);
-    }
-    if (intro >= c.INTRO_WIND_DURATION && clock >= nextFlip) {
-      launch();
-      nextFlip = clock + flipInterval();
-    }
-    while (plans.length && plans[0].at <= clock) {
-      if (!launch(plans[0].wanted)) break;
-      plans.shift();
+      schedule(c.INTRO_WIND_FLIP_COUNT, c.INTRO_WIND_DIRECTION > 0 ? 0 : 1);
+    } else if (intro >= c.INTRO_WIND_DURATION && clock >= nextFlip && !plans.length && !active.length) {
+      // 右风把左页掀往右；回翻按阵计数，空侧由 launch 自动换边。
+      const wanted = Math.random() < c.BACKFLIP_CHANCE ? 1 : 0;
+      if (heroPending) {
+        schedule([1, 1], wanted, true);
+        heroPending = false;
+        untilHero = integer(c.HERO_FLIP_EVERY);
+      } else {
+        schedule([c.FLURRY_PAGES_MIN, c.FLURRY_PAGES_MAX], wanted);
+        heroPending = --untilHero === 0;
+      }
     }
     for (let i = active.length - 1; i >= 0; i--) {
       const flip = active[i];
-      const progress = Math.min(1, (clock - flip.time) / flip.duration);
-      if (progress >= 1) {
-        flip.paper.mesh.visible = false;
-        active.splice(i, 1);
-        if (!flip.half) {
-          counts[flip.to]++;
-          pageIndex[flip.to]++;
-          setStacks();
-        }
-        continue;
-      }
-      const phase = flip.half ? Math.sin(progress * Math.PI) * .49 : progress;
-      flip.paper.pose(flip.from ? 1 : -1, flip.start, flip.half ? flip.start : flip.end,
-        phase, .07, clock * 7 + flip.phase, localWind,
-        flip.half ? radians(c.HALF_FLIP_ANGLE_DEG) * 2 : Math.PI);
+      if (clock - flip.time < flip.duration) continue;
+      flip.paper.mesh.visible = false;
+      flip.paper.ghosts.forEach(ghost => { ghost.visible = false; });
+      active.splice(i, 1);
+      stacks[flip.to].push(flip.variant);
+      setStacks();
     }
+    while (plans.length && plans[0].at <= clock) {
+      if (!launch(plans[0])) break;
+      plans.shift();
+    }
+    for (const flip of active) {
+      const progress = (clock - flip.time) / flip.duration;
+      const turning = pageProgress(progress);
+      const side = flip.from ? 1 : -1;
+      flip.paper.pose(side, flip.start, flip.end, turning, flip.hero ? .23 : .065, clock * 18 + flip.phase,
+        localWind, Math.PI, c.PAGE_WIDTH, c.PAGE_DEPTH, flip.hero ? .68 : 1);
+      flip.paper.ghosts.forEach((ghost, i) => {
+        const lag = c.MOTION_BLUR_GHOSTS[i];
+        ghost.visible = !flip.hero && progress > lag && progress < .97;
+        if (!ghost.visible) return;
+        const angle = side * Math.PI * (pageProgress(progress - lag) - turning);
+        ghost.rotation.z = angle;
+        const hinge = flip.start + (flip.end - flip.start) * turning;
+        ghost.position.set(Math.sin(angle) * hinge, (1 - Math.cos(angle)) * hinge, -.006 * (i + 1));
+      });
+    }
+    pageLight.sample(lights);
     renderer.render(scene, camera);
   }
 
@@ -197,6 +213,7 @@ export function mountAlbum(T, canvas, air, motion) {
     fit, update,
     settle() {
       build(mobile);
+      pageLight.clear();
       renderer.render(scene, camera);
     },
     destroy() {

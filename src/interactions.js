@@ -219,8 +219,12 @@ export function createInteractions(stage, apple, isClickable, pickApple, canInte
     document.documentElement.classList.remove(activeClass);
   }
 
+  function isPictureBackdrop(x, y) {
+    return location.hash === '#/picture' && !isRouteClickable(x, y);
+  }
+
   function move(event) {
-    if (event.pointerType === 'touch' || !supportsFine.matches) {
+    if (event.pointerType === 'touch' || !supportsFine.matches || isPictureBackdrop(event.clientX, event.clientY)) {
       hidePointer();
       return;
     }
@@ -338,6 +342,7 @@ export function createInteractions(stage, apple, isClickable, pickApple, canInte
 
   return {
     update(dt) {
+      if (pointer.visible && isPictureBackdrop(pointer.x, pointer.y)) hidePointer();
       const interactive = canInteract();
       const appleHover = interactive && pointer.visible
         && apple.contains(document.elementFromPoint(pointer.x, pointer.y));

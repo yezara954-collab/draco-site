@@ -1,5 +1,5 @@
 import {
-  picture, ROPE_NODES, ROPE_DAMPING, ROPE_STIFFNESS, STAR_MASS, SWAY_AMPLITUDE,
+  album, picture, ROPE_NODES, ROPE_DAMPING, ROPE_STIFFNESS, STAR_MASS, SWAY_AMPLITUDE,
   WIND_NOISE_SPEED, WIND_BASE, WIND_GUST_STRENGTH, WIND_GUST_INTERVAL, WIND_GUST_ATTACK, WIND_GUST_RELEASE,
 } from './config.js';
 
@@ -27,7 +27,7 @@ export function makeWind(range, random) {
     if (time >= next) {
       const attack = range(WIND_GUST_ATTACK);
       const release = range(WIND_GUST_RELEASE);
-      gusts.push({ start: time, attack, release, force: range(WIND_GUST_STRENGTH) * (random() < .5 ? -1 : 1) });
+      gusts.push({ start: time, attack, release, force: range(WIND_GUST_STRENGTH) * (random() < album.WIND_RIGHT_CHANCE ? 1 : -1) });
       next = time + range(WIND_GUST_INTERVAL);
     }
     gusts = gusts.filter(gust => time < gust.start + gust.attack + gust.release + settings.lag[1]);
@@ -37,12 +37,14 @@ export function makeWind(range, random) {
       const phase = t * WIND_NOISE_SPEED + 12;
       const limit = Math.sin(SWAY_AMPLITUDE) * 1.26;
       let force = WIND_BASE * (noise(x, phase) * .72 + noise(x * 2.1 + 19, phase * .67) * .28);
+      const bias = album.WIND_RIGHT_BIAS * mix(...WIND_GUST_STRENGTH, .5);
+      force += bias * (.62 + .38 * noise(x * .41 + 5, phase * .5));
       let strongestGust = null;
       for (const gust of gusts) {
         const age = t - gust.start;
         if (age <= 0 || age >= gust.attack + gust.release) continue;
         const envelope = age < gust.attack ? ease(age / gust.attack) : 1 - ease((age - gust.attack) / gust.release);
-        const local = gust.force * envelope * noise(x * .65 + 8, gust.start * .17);
+        const local = gust.force * envelope * (.55 + .45 * noise(x * .65 + 8, gust.start * .17));
         force += local;
         if (withGust && (!strongestGust || Math.abs(local * settings.gravity) > Math.abs(strongestGust.force))) {
           strongestGust = { id: gust.start, force: local * settings.gravity };

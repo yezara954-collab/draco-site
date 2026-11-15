@@ -3,8 +3,8 @@ import { album, picture, SOUND_ENABLED, SOUND_VOLUME, GLASS_GRAIN_COUNT, GLASS_F
 export function makeImpactSound() {
   const settings = picture.sound;
   let enabled = SOUND_ENABLED;
-  let context, master, noise, windBus;
-  let voices = 0;
+  let context, master, noise, swayBus;
+  let voices = 0, chimes = 0;
   let closed = false;
 
   function unlock() {
@@ -29,40 +29,7 @@ export function makeImpactSound() {
 
   function sync() {
     if (master) master.gain.setValueAtTime(enabled && !document.hidden ? SOUND_VOLUME : 0, context.currentTime);
-    if (windBus) windBus.gain.setValueAtTime(enabled && !document.hidden ? album.WHOOSH_VOLUME : 0, context.currentTime);
-  }
-
-  function whoosh() {
-    if (closed || !enabled || document.hidden || context?.state !== 'running') return;
-    const duration = album.WHOOSH_DURATION;
-    const now = context.currentTime;
-    const source = context.createBufferSource();
-    // 循环既有白噪声缓冲，不分配另一段长采样，也不重新解锁音频。
-    source.buffer = noise;
-    source.loop = true;
-    const filter = context.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.Q.value = .48;
-    filter.frequency.setValueAtTime(album.WHOOSH_BAND[0], now);
-    filter.frequency.linearRampToValueAtTime(album.WHOOSH_BAND[1], now + duration * .36);
-    filter.frequency.linearRampToValueAtTime(album.WHOOSH_BAND[2], now + duration);
-    const shape = context.createGain();
-    shape.gain.setValueAtTime(0, now);
-    shape.gain.linearRampToValueAtTime(1, now + duration * .31);
-    shape.gain.linearRampToValueAtTime(0, now + duration);
-    const output = context.createGain();
-    windBus = output;
-    output.gain.value = album.WHOOSH_VOLUME;
-    source.connect(filter).connect(shape).connect(output).connect(context.destination);
-    source.start(now);
-    source.stop(now + duration);
-    source.onended = () => {
-      source.disconnect();
-      filter.disconnect();
-      shape.disconnect();
-      output.disconnect();
-      if (windBus === output) windBus = undefined;
-    };
+    if (swayBus) swayBus.gain.setValueAtTime(enabled && !document.hidden ? album.SWAY_SOUND_VOLUME : 0, context.currentTime);
   }
 
   const random = ([a, b]) => a + (b - a) * Math.random();
@@ -97,6 +64,36 @@ export function makeImpactSound() {
     tone.start(at);
     tone.stop(at + duration);
     tone.onended = () => { tone.disconnect(); gain.disconnect(); };
+  }
+
+  function chime(speed) {
+    if (!album.SWAY_SOUND_ENABLED || !enabled || document.hidden || context?.state !== 'running' ||
+        chimes >= album.SWAY_SOUND_MAX_VOICES || speed <= 0) return;
+    if (!swayBus) {
+      swayBus = context.createGain();
+      swayBus.gain.value = album.SWAY_SOUND_VOLUME;
+      swayBus.connect(context.destination);
+    }
+    chimes++;
+    const now = context.currentTime;
+    const duration = random(album.SWAY_SOUND_DURATION);
+    const [min, max] = album.SWAY_SOUND_GRAINS;
+    const count = Math.floor(random([min, max + 1]));
+    const bus = context.createGain();
+    bus.connect(swayBus);
+    for (let i = 0; i < count; i++) {
+      const offset = duration * .28 * (i / count) ** 1.4;
+      const pitch = random(album.SWAY_SOUND_FREQUENCY);
+      const peak = speed * random([.18, .46]) / (1 + i * .52);
+      const type = Math.random() < .34 ? 'triangle' : 'sine';
+      grain(bus, pitch, now + offset, duration - offset, peak, type);
+      grain(bus, pitch * random(settings.overtone), now + offset, (duration - offset) * .72, peak * .22, 'sine');
+    }
+    const end = context.createBufferSource();
+    end.buffer = context.createBuffer(1, 1, context.sampleRate);
+    end.connect(bus);
+    end.start(now + duration);
+    end.onended = () => { end.disconnect(); bus.disconnect(); chimes--; };
   }
 
   function play() {
@@ -138,7 +135,7 @@ export function makeImpactSound() {
   }
 
   return {
-    unlock, play, sync, whoosh,
+    unlock, play, sync, chime,
     get enabled() { return enabled; },
     toggle() { enabled = !enabled; sync(); if (enabled) unlock(); },
     destroy() { closed = true; if (context) void context.close().catch(() => {}); },

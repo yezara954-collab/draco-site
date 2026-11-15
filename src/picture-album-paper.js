@@ -15,15 +15,14 @@ function pageTexture(T, variant) {
   const ctx = canvas.getContext('2d');
   ctx.scale(canvas.width, canvas.height);
   const wash = ctx.createLinearGradient(0, 0, 1, .12);
-  wash.addColorStop(0, colors.spineShade);
-  wash.addColorStop(.13, colors.paper);
-  wash.addColorStop(.56, colors.paperLight);
-  wash.addColorStop(1, colors.paper);
+  wash.addColorStop(0, c.PAGE_SHADE);
+  wash.addColorStop(.13, c.PAGE_COLOR);
+  wash.addColorStop(1, c.PAGE_COLOR);
   ctx.fillStyle = wash;
   ctx.fillRect(0, 0, 1, 1);
 
   // 书沟排线与纤维纹理烘到纹理，翻页时跟着纸面变形。
-  ctx.strokeStyle = colors.ink;
+  ctx.strokeStyle = c.INK_COLOR;
   ctx.lineWidth = .00085;
   for (let i = 0; i < 125; i++) {
     const y = (i + .5) / 125;
@@ -33,7 +32,7 @@ function pageTexture(T, variant) {
     ctx.quadraticCurveTo(.033, y - .003, .058 + .026 * Math.sin(i * 2.4), y + .009);
     ctx.stroke();
   }
-  ctx.fillStyle = colors.ink;
+  ctx.fillStyle = c.INK_COLOR;
   ctx.globalAlpha = .045;
   for (let i = 0; i < 1700; i++) {
     ctx.fillRect((i * .6180339) % 1, (i * .729513) % 1, .0015, .00125);
@@ -46,9 +45,9 @@ function pageTexture(T, variant) {
     ctx.globalAlpha = .13;
     ctx.fillRect(x + .009, y + .008, w, h);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = colors.framePaper;
+    ctx.fillStyle = c.PAGE_COLOR;
     ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = colors.ink;
+    ctx.strokeStyle = c.INK_COLOR;
     ctx.lineWidth = .003;
     ctx.globalAlpha = .76;
     ctx.strokeRect(x, y, w, h);
@@ -95,16 +94,16 @@ export function createPaper(T, ink, material) {
   const ys = new Float32Array(columns + 1);
   return {
     mesh,
-    pose(side, start, end, progress = 0, lift = 0, phase = 0, wind = 0, maximumAngle = Math.PI, sheetWidth = width, sheetDepth = depth) {
+    pose(side, start, end, progress = 0, lift = 0, phase = 0, wind = 0, maximumAngle = Math.PI, sheetWidth = width, sheetDepth = depth, curlScale = 1) {
       const envelope = Math.sin(Math.PI * progress);
-      const ease = progress * progress * (3 - 2 * progress);
+      const ease = progress;
       xs[0] = 0;
       ys[0] = 0;
       for (let i = 1; i <= columns; i++) {
         const u = (i - .5) / columns;
         // 沿纸的弧长积分局部切线，纸不会因为卷曲而凭空拉长。
         const delayed = ease - c.CURL_LAG * envelope * u;
-        const curl = c.CURL_AMOUNT * envelope * Math.min(1, maximumAngle / Math.PI) *
+        const curl = curlScale * c.CURL_AMOUNT * envelope * Math.min(1, maximumAngle / Math.PI) *
           (.66 * Math.sin(2 * Math.PI * u - .7) - .35 * u);
         const tangent = maximumAngle * delayed + curl;
         // 小角度抬页时，不能让先卷起的区域穿过原来的纸摞。
@@ -132,15 +131,17 @@ export function createPaper(T, ink, material) {
   };
 }
 
-export function makeAlbumArt(T, book, count) {
-  const ink = new T.LineBasicMaterial({ color: colors.ink, transparent: true, opacity: c.INK_OUTLINE_ALPHA });
+export function makeAlbumArt(T, book, count, light, ghostCount) {
+  const ink = new T.LineBasicMaterial({ color: c.INK_COLOR, transparent: true, opacity: c.INK_OUTLINE_ALPHA });
   const coverInk = new T.LineBasicMaterial({ color: colors.cover });
   const cover = new T.MeshBasicMaterial({ color: colors.cover, side: T.DoubleSide });
-  const edgeMaterial = new T.MeshBasicMaterial({ color: colors.edges, side: T.DoubleSide });
-  const pages = Array.from({ length: c.FRAME_VARIANTS }, (_, i) => new T.MeshStandardMaterial({
-    map: pageTexture(T, i), side: T.DoubleSide, roughness: .97,
+  const edgeMaterial = new T.MeshBasicMaterial({ color: c.PAGE_SHADE, side: T.DoubleSide });
+  const edgeInk = new T.LineBasicMaterial({ color: c.PAGE_EDGE_COLOR });
+  const pages = Array.from({ length: c.FRAME_VARIANTS }, (_, i) => new T.MeshBasicMaterial({
+    map: pageTexture(T, i), side: T.DoubleSide,
     polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
   }));
+  pages.forEach(light.attach);
   const stationary = [-1, 1].map(side => {
     const coverPaper = createPaper(T, coverInk, cover);
     coverPaper.pose(side, c.COVER_DEPTH, c.COVER_DEPTH, 0, 0, 0, 0, Math.PI,
@@ -165,7 +166,7 @@ export function makeAlbumArt(T, book, count) {
     const lines = Array.from({ length: count }, () => {
       const geometry = new T.BufferGeometry();
       geometry.setAttribute('position', new T.BufferAttribute(new Float32Array(coordinates.length * 3), 3));
-      const line = new T.Line(geometry, ink);
+      const line = new T.Line(geometry, edgeInk);
       line.frustumCulled = false;
       book.add(line);
       return line;
@@ -199,10 +200,19 @@ export function makeAlbumArt(T, book, count) {
   spine.rotation.x = Math.PI / 2;
   spine.position.y = c.SPINE_HEIGHT;
   book.add(spine);
+  const ghostMaterials = c.MOTION_BLUR_ALPHA.slice(0, ghostCount).map(opacity => new T.MeshBasicMaterial({
+    color: colors.white, side: T.DoubleSide, transparent: true, opacity, depthWrite: false,
+  }));
   const moving = Array.from({ length: c.MAX_MOVING_PAGES }, () => {
     const paper = createPaper(T, ink, pages[0]);
     paper.mesh.visible = false;
     book.add(paper.mesh);
+    paper.ghosts = ghostMaterials.map(material => {
+      const ghost = new T.Mesh(paper.mesh.geometry, material);
+      ghost.visible = ghost.frustumCulled = false;
+      book.add(ghost);
+      return ghost;
+    });
     return paper;
   });
   return { stationary, moving, pages };
