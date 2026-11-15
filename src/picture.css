@@ -53,7 +53,7 @@
 .picture-sound:hover, .picture-sound:focus-visible { opacity: 1; }
 .picture-sound:focus-visible { outline: 1px solid currentColor; outline-offset: 1px; }
 
-.picture-ground-light, .picture-album {
+.picture-ground-light, .picture-ground-stars, .picture-album {
   position: absolute;
   inset: 0;
   width: 100%;

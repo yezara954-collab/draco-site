@@ -1,5 +1,5 @@
 import { picture as config, album as settings } from './config.js';
-import { entryForce, makeAlbumAir } from './picture-album-air.js';
+import { makeAlbumAir } from './picture-album-air.js';
 import { mountAlbum } from './picture-album.js';
 import { makeSky } from './picture-sky.js';
 import { makeImpactSound } from './picture-sound.js';
@@ -19,6 +19,7 @@ export function mountPicture(host) {
   scene.innerHTML = `
     <canvas class="picture-sky" aria-hidden="true"></canvas>
     <canvas class="picture-ground-light" aria-hidden="true"></canvas>
+    <canvas class="picture-ground-stars" aria-hidden="true"></canvas>
     <canvas class="picture-album" aria-hidden="true"></canvas>
     <div class="picture-controls">
       <div class="picture-actions">
@@ -51,9 +52,9 @@ export function mountPicture(host) {
   let book, albumReady = false;
   let intro = -1;
   let introStarted = false;
-  const drawing = makeSky(canvas, motion, sound.play, x => entryForce(intro, x), sound.chime);
+  const drawing = makeSky(canvas, motion, sound.play, sound.chime);
   drawing.fit();
-  const air = makeAlbumAir(scene.querySelector('.picture-ground-light'));
+  const air = makeAlbumAir(scene.querySelector('.picture-ground-light'), scene.querySelector('.picture-ground-stars'));
   const observer = new ResizeObserver(() => {
     drawing.fit();
     book?.fit();

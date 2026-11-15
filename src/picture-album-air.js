@@ -5,7 +5,6 @@ export const random = ([a, b]) => a + (b - a) * Math.random();
 export const integer = ([a, b]) => Math.floor(random([a, b + 1]));
 const clamp = x => Math.max(0, Math.min(1, x));
 const smooth = x => { const t = clamp(x); return t * t * (3 - 2 * t); };
-const direction = Math.sign(c.INTRO_WIND_DIRECTION) || 1;
 
 function bitmap(width, height) {
   const canvas = document.createElement('canvas');
@@ -26,23 +25,28 @@ function glow(color) {
   return canvas;
 }
 
-export function makeAlbumAir(groundCanvas) {
+export function makeAlbumAir(groundCanvas, starCanvas) {
   const ground = groundCanvas.getContext('2d');
+  const stars = starCanvas.getContext('2d');
+  const colorsOnGround = [glow(c.STARLIGHT_COOL), glow(c.STARLIGHT_WARM)];
   const white = glow(colors.white);
   const warm = glow(colors.glow);
   const shadow = glow(colors.groundInk);
-  let w, h, dpr;
+  let w, h, dpr, bookBounds;
 
   function resize(width, height, ratio) {
     w = width;
     h = height;
     dpr = ratio;
-    groundCanvas.width = Math.ceil(w * ratio);
-    groundCanvas.height = Math.ceil(h * ratio);
-    ground.setTransform(ratio, 0, 0, ratio, 0, 0);
+    for (const ctx of [ground, stars]) {
+      ctx.canvas.width = Math.ceil(w * ratio);
+      ctx.canvas.height = Math.ceil(h * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
   }
 
   function groundAt(source, box) {
+    bookBounds = box;
     const { left, right, top, bottom } = box;
     const x = (left + right) / 2, span = right - left, height = bottom - top;
     const y = h * picture.ground.y;
@@ -74,16 +78,34 @@ export function makeAlbumAir(groundCanvas) {
     ground.globalAlpha = 1;
   }
 
-  return { resize, groundAt };
+  function glowAt(lights, count) {
+    if (!bookBounds) return;
+    const { left, right, top, bottom } = bookBounds;
+    const [minimum, maximum] = c.STARLIGHT_GROUND_ALPHA;
+    const radius = c.STARLIGHT_SHAPE_SIZE[1] * Math.min(w, h) / 900;
+    stars.clearRect(left - 2 * radius, bottom - radius, right - left + 4 * radius, 2 * radius);
+    for (let i = 0; i < count; i++) {
+      const { x, y, size, warm, score } = lights[i];
+      const centerY = bottom + (y - (top + bottom) * .5) * .18;
+      stars.globalAlpha = (minimum + (maximum - minimum) * score) * Math.sqrt(score);
+      stars.drawImage(colorsOnGround[Number(warm)], x - .58 * size, centerY - size * .15,
+        1.16 * size, .30 * size);
+    }
+    stars.globalAlpha = 1;
+  }
+  return { resize, groundAt, glowAt };
 }
 
 export function frontArrival(x) {
-  return (direction > 0 ? x : 1 - x) / c.INTRO_WIND_SPEED;
+  return x / c.INTRO_WIND_FRONT_SPEED;
 }
 
-export function entryForce(time, x) {
-  if (time < 0 || time >= c.INTRO_WIND_DURATION) return 0;
+export function entrySway(time, x) {
   const age = time - frontArrival(x);
-  const envelope = smooth(age / .20) * (1 - smooth((age - .27) / 1.13));
-  return direction * envelope * c.INTRO_WIND_STRENGTH * picture.rope.gravity * .125;
+  if (age <= 0 || time >= c.INTRO_WIND_DURATION) return 0;
+  const amplitude = c.INTRO_SWAY_MAX_ANGLE_DEG * Math.PI / 180;
+  if (age <= c.INTRO_WIND_ATTACK) return amplitude * smooth(age / c.INTRO_WIND_ATTACK);
+  const release = clamp((age - c.INTRO_WIND_ATTACK) / c.INTRO_WIND_RELEASE);
+  return amplitude * Math.cos(release * 1.55 * Math.PI) *
+    (1 - smooth(release)) ** (1.25 + c.INTRO_DAMPING_SCALE);
 }

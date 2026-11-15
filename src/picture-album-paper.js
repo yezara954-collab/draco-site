@@ -142,6 +142,10 @@ export function makeAlbumArt(T, book, count, light, ghostCount) {
     polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
   }));
   pages.forEach(light.attach);
+  const endpaper = new T.MeshBasicMaterial({
+    color: c.PAGE_COLOR, side: T.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+  });
+  light.attach(endpaper);
   const stationary = [-1, 1].map(side => {
     const coverPaper = createPaper(T, coverInk, cover);
     coverPaper.pose(side, c.COVER_DEPTH, c.COVER_DEPTH, 0, 0, 0, 0, Math.PI,
@@ -175,7 +179,7 @@ export function makeAlbumArt(T, book, count, light, ghostCount) {
       setHeight(number, material) {
         const bottom = c.COVER_DEPTH;
         const height = bottom + Math.max(1, number) * c.PAGE_THICKNESS;
-        top.mesh.material = material;
+        top.mesh.material = number ? material : endpaper;
         top.pose(side, height, height);
         coordinates.forEach(([u, z], i) => {
           const x = side * (c.SPINE_GAP + u * width);
@@ -215,5 +219,5 @@ export function makeAlbumArt(T, book, count, light, ghostCount) {
     });
     return paper;
   });
-  return { stationary, moving, pages };
+  return { stationary, moving, pages, endpaper };
 }

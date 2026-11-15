@@ -3,7 +3,8 @@ import {
   STAR_SIZE_MIN, STAR_SIZE_MAX, STAR_GLOW_SCALE, STAR_GLOW_ALPHA,
   DROP_INTERVAL_MIN, DROP_INTERVAL_MAX, DROP_COUNT_MIN, DROP_COUNT_MAX, DROP_FALL_TIME, SPARK_COUNT,
 } from './config.js';
-import { createRope, makeWind, stepRope, sampleCurve } from './picture-rope.js';
+import { frontArrival, entrySway } from './picture-album-air.js';
+import { createRope, entryArc, makeWind, stepRope, sampleCurve } from './picture-rope.js';
 
 const { palette, display, sky, tassel, rope, falling, ground } = picture;
 const tau = 2 * Math.PI;
@@ -86,7 +87,7 @@ function makeSprites() {
   };
 }
 
-export function makeSky(canvas, motion, onImpact, entryWind, onChime) {
+export function makeSky(canvas, motion, onImpact, onChime) {
   const ctx = canvas.getContext('2d', { alpha: false });
   const sprites = makeSprites();
   const rng = makeRandom(display.seed);
@@ -102,7 +103,9 @@ export function makeSky(canvas, motion, onImpact, entryWind, onChime) {
   let nextDrop = range([DROP_INTERVAL_MIN, DROP_INTERVAL_MAX]);
   const windRandom = makeRandom(display.seed + 612);
   const windAt = makeWind(bounds => range(bounds, windRandom), windRandom);
-  let horizon, windSample;
+  let horizon, windSample, currentIntro = -1;
+  const fallingTip = {};
+  const chimeWeights = Array.from({ length: Math.max(TASSEL_COUNT.desktop, TASSEL_COUNT.mobile) }, Math.random);
   const lights = [];
   const fallingLights = Array.from({ length: DROP_COUNT_MAX * 2 }, () => ({}));
 
@@ -120,6 +123,9 @@ export function makeSky(canvas, motion, onImpact, entryWind, onChime) {
     height = h;
     mobile = w <= display.mobileWidth;
     const count = mobile ? TASSEL_COUNT.mobile : TASSEL_COUNT.desktop;
+    const chimeStrands = new Set(chimeWeights.slice(0, count).map((weight, index) => ({ weight, index }))
+      .sort((a, b) => a.weight - b.weight)
+      .slice(0, Math.round(count * album.CHIME_INTRO_RATIO)).map(item => item.index));
     const layout = makeRandom(display.seed + 581);
     let x = 0;
     strands = Array.from({ length: count }, (_, i) => {
@@ -138,7 +144,7 @@ export function makeSky(canvas, motion, onImpact, entryWind, onChime) {
         x, length, beads, phase, sizeFactor: range([0, 1], layout),
         glintAt: i % tassel.glintEvery === 0 ? range([.32, .81], layout) : 0,
         warm: Boolean(i % 2) !== (layout() < .085), arms: integer(0, 1, layout),
-        next: 0, regrow: -Infinity, light: {}, chimeAt: -Infinity, wasFast: false, wasClose: false,
+        next: 0, regrow: -Infinity, light: {}, rings: chimeStrands.has(i),
       };
       // 保留原有的布局随机序列，物理用独立种子。
       layout();
@@ -188,10 +194,9 @@ export function makeSky(canvas, motion, onImpact, entryWind, onChime) {
       radius * 5 * fraction, alpha * mix(.72, 1, pulse));
   }
 
-  function paint(withChimes = false, intro = -1) {
+  function paint() {
     lights.length = 0;
     let fallingIndex = 0;
-    let neighbor;
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
     ctx.fillStyle = palette.black;
@@ -216,7 +221,7 @@ export function makeSky(canvas, motion, onImpact, entryWind, onChime) {
     }
 
     for (const strand of strands) {
-      sampleCurve(strand.rope, accumulator / rope.step);
+      sampleCurve(strand.rope, accumulator / rope.step, entrySway(currentIntro, strand.x / width));
       const { samples } = strand.rope;
       const end = samples.at(-1);
       const total = end.distance;
@@ -255,29 +260,11 @@ export function makeSky(canvas, motion, onImpact, entryWind, onChime) {
         lamp.x = x;
         lamp.y = y;
         lamp.warm = strand.warm;
+        lamp.arms = strand.arms === 0 ? 4 : 5;
         lamp.alpha = growth * mix(.72, 1, wave(clock * 1.8 + strand.phase));
         lamp.falling = false;
         lights.push(lamp);
-        if (withChimes) {
-          const tip = strand.rope.nodes.at(-1);
-          const vx = (tip.x - tip.px) / rope.step;
-          const fast = vx > album.SWAY_SOUND_THRESHOLD;
-          const close = neighbor && vx > 0 &&
-            Math.hypot(x - neighbor.light.x, y - neighbor.light.y) < album.SWAY_SOUND_COLLISION_DISTANCE;
-          const frontActive = intro >= 0 && intro < album.INTRO_WIND_DURATION;
-          const mayRing = !frontActive || entryWind(strand.x / width) > 0;
-          if (mayRing && ((fast && !strand.wasFast) || (close && !strand.wasClose)) &&
-              clock - strand.chimeAt >= album.SWAY_SOUND_COOLDOWN) {
-            strand.chimeAt = clock;
-            onChime(clamp(vx / (album.SWAY_SOUND_THRESHOLD * 2)));
-          }
-          strand.wasFast = Boolean(mayRing && fast);
-          strand.wasClose = Boolean(mayRing && close);
-        }
-      } else {
-        strand.wasFast = strand.wasClose = false;
       }
-      neighbor = visible ? strand : undefined;
     }
 
     for (const drop of drops) {
@@ -298,6 +285,7 @@ export function makeSky(canvas, motion, onImpact, entryWind, onChime) {
       lamp.x = x;
       lamp.y = y;
       lamp.warm = drop.strand.warm;
+      lamp.arms = drop.strand.arms === 0 ? 4 : 5;
       lamp.alpha = .98;
       lamp.falling = true;
       lights.push(lamp);
@@ -355,13 +343,23 @@ export function makeSky(canvas, motion, onImpact, entryWind, onChime) {
 
   function update(dt, intro) {
     if (motion.matches || document.hidden) return;
+    if (album.CHIME_INTRO_ENABLED && onChime && intro > currentIntro && intro >= 0 && intro < album.INTRO_WIND_DURATION &&
+        currentIntro < 1 / album.INTRO_WIND_FRONT_SPEED) {
+      for (const strand of strands) {
+        const front = frontArrival(strand.x / width);
+        if (front > currentIntro && front <= intro && strand.rings) {
+          onChime(mix(.36, .75, Math.random()));
+        }
+      }
+    }
+    currentIntro = intro;
     clock += Math.min(dt, display.maxStep);
     accumulator += Math.min(dt, rope.maxCatchup);
     while (accumulator >= rope.step) {
       physicsTime += rope.step;
       windSample = windAt(physicsTime, width);
       for (const strand of strands) {
-        stepRope(strand.rope, windSample(strand) + (entryWind?.(strand.x / width) ?? 0));
+        stepRope(strand.rope, windSample(strand));
       }
       accumulator -= rope.step;
     }
@@ -372,8 +370,12 @@ export function makeSky(canvas, motion, onImpact, entryWind, onChime) {
       if (!drop.started) {
         const tip = strand.rope.nodes.at(-1);
         const alpha = accumulator / rope.step;
-        drop.x = strand.x + mix(tip.fromX, tip.x, alpha);
-        drop.y = mix(tip.fromY, tip.y, alpha) + strand.radius * .44;
+        fallingTip.x = mix(tip.fromX, tip.x, alpha);
+        fallingTip.y = mix(tip.fromY, tip.y, alpha);
+        const angle = entrySway(currentIntro, strand.x / width);
+        if (Math.abs(angle) > .00001) entryArc(angle, strand.length, 1, fallingTip.x, fallingTip.y, fallingTip);
+        drop.x = strand.x + fallingTip.x;
+        drop.y = fallingTip.y + strand.radius * .44;
         drop.vx = Math.max(-48, Math.min(48, (tip.x - tip.px) / rope.step * .32));
         drop.started = true;
         strand.regrow = Infinity;
@@ -384,13 +386,14 @@ export function makeSky(canvas, motion, onImpact, entryWind, onChime) {
     });
     sparks = sparks.filter(spark => clock - spark.time < spark.life);
     ripples = ripples.filter(ring => clock - ring.time < falling.rippleLife);
-    paint(album.SWAY_SOUND_ENABLED && Boolean(onChime), intro);
+    paint();
   }
 
   return {
     fit, update, lights,
     sampleWind(x, lag) { return windSample?.({ x: x * width, lag }, true); },
     settle() {
+      currentIntro = album.INTRO_WIND_DURATION;
       clearFalls();
       for (const { rope: { nodes, segment } } of strands) {
         nodes.forEach((node, i) => {

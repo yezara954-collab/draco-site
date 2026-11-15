@@ -108,8 +108,17 @@ function spline(before, a, b, after, t) {
     + t * (3 * a - 3 * b + after - before)));
 }
 
-export function sampleCurve(rope, alpha) {
-  const { nodes, samples } = rope;
+// 以恒定弧长画圆弧。切线从垂直到 2 × 摆角，因此末端弦线恰好偏转指定角度。
+export function entryArc(angle, length, fraction, x, y, point) {
+  const turn = 2 * angle * fraction;
+  const radius = length / (2 * angle);
+  const mixWeight = Math.min(1, Math.abs(angle) / .135);
+  point.x = mix(x, radius * (1 - Math.cos(turn)), mixWeight);
+  point.y = mix(y, radius * Math.sin(turn), mixWeight);
+}
+
+export function sampleCurve(rope, alpha, angle = 0) {
+  const { nodes, samples, segment } = rope;
   const subdivisions = settings.curveSteps;
   let index = 1;
   for (let edge = 0; edge < nodes.length - 1; edge++) {
@@ -122,6 +131,8 @@ export function sampleCurve(rope, alpha) {
       const point = samples[index], prev = samples[index - 1];
       point.x = spline(...xs, t);
       point.y = spline(...ys, t);
+      if (Math.abs(angle) > .00001) entryArc(angle, segment * (nodes.length - 1),
+        index / (samples.length - 1), point.x, point.y, point);
       point.distance = prev.distance + Math.hypot(point.x - prev.x, point.y - prev.y);
     }
   }

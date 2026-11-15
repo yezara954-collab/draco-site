@@ -29,7 +29,7 @@ export function makeImpactSound() {
 
   function sync() {
     if (master) master.gain.setValueAtTime(enabled && !document.hidden ? SOUND_VOLUME : 0, context.currentTime);
-    if (swayBus) swayBus.gain.setValueAtTime(enabled && !document.hidden ? album.SWAY_SOUND_VOLUME : 0, context.currentTime);
+    if (swayBus) swayBus.gain.setValueAtTime(enabled && !document.hidden ? album.CHIME_VOLUME : 0, context.currentTime);
   }
 
   const random = ([a, b]) => a + (b - a) * Math.random();
@@ -67,23 +67,23 @@ export function makeImpactSound() {
   }
 
   function chime(speed) {
-    if (!album.SWAY_SOUND_ENABLED || !enabled || document.hidden || context?.state !== 'running' ||
-        chimes >= album.SWAY_SOUND_MAX_VOICES || speed <= 0) return;
+    if (!album.CHIME_INTRO_ENABLED || !enabled || document.hidden || context?.state !== 'running' ||
+        chimes >= album.CHIME_MAX_VOICES || speed <= 0) return;
     if (!swayBus) {
       swayBus = context.createGain();
-      swayBus.gain.value = album.SWAY_SOUND_VOLUME;
+      swayBus.gain.value = album.CHIME_VOLUME;
       swayBus.connect(context.destination);
     }
     chimes++;
     const now = context.currentTime;
-    const duration = random(album.SWAY_SOUND_DURATION);
-    const [min, max] = album.SWAY_SOUND_GRAINS;
+    const duration = random(album.CHIME_DURATION);
+    const [min, max] = album.CHIME_GRAINS;
     const count = Math.floor(random([min, max + 1]));
     const bus = context.createGain();
     bus.connect(swayBus);
     for (let i = 0; i < count; i++) {
       const offset = duration * .28 * (i / count) ** 1.4;
-      const pitch = random(album.SWAY_SOUND_FREQUENCY);
+      const pitch = random(album.CHIME_FREQUENCY);
       const peak = speed * random([.18, .46]) / (1 + i * .52);
       const type = Math.random() < .34 ? 'triangle' : 'sine';
       grain(bus, pitch, now + offset, duration - offset, peak, type);
