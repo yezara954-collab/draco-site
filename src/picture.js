@@ -1,5 +1,6 @@
-import { picture as config } from './config.js';
-import { makeCamera } from './picture-camera.js';
+import { picture as config, album as settings } from './config.js';
+import { entryForce, makeAlbumAir } from './picture-album-air.js';
+import { mountAlbum } from './picture-album.js';
 import { makeSky } from './picture-sky.js';
 import { makeImpactSound } from './picture-sound.js';
 import { openPhotoLibrary, preparePhoto } from './picture-storage.js';
@@ -17,8 +18,9 @@ export function mountPicture(host) {
   scene.style.setProperty('--picture-ink', palette.ink);
   scene.innerHTML = `
     <canvas class="picture-sky" aria-hidden="true"></canvas>
-    <canvas class="picture-camera" aria-hidden="true"></canvas>
-    <button type="button" class="picture-shutter" aria-label="拍立得快门" hidden></button>
+    <canvas class="picture-ground-light" aria-hidden="true"></canvas>
+    <canvas class="picture-album" aria-hidden="true"></canvas>
+    <canvas class="picture-entry-wind" aria-hidden="true"></canvas>
     <div class="picture-controls">
       <div class="picture-actions">
         <button type="button" class="picture-sound"></button>
@@ -47,19 +49,42 @@ export function mountPicture(host) {
   toggle.addEventListener('click', () => { sound.toggle(); labelSound(); }, { signal });
   document.addEventListener('visibilitychange', sound.sync, { signal });
 
-  const drawing = makeSky(canvas, motion, sound.play);
+  let book;
+  let intro = -1;
+  let introStarted = false;
+  const drawing = makeSky(canvas, motion, sound.play, x => entryForce(intro, x));
   drawing.fit();
-  const cameraCanvas = scene.querySelector('.picture-camera');
-  const camera = makeCamera(cameraCanvas, scene.querySelector('.picture-shutter'), motion, signal);
+  const air = makeAlbumAir(scene.querySelector('.picture-ground-light'), scene.querySelector('.picture-entry-wind'));
   const observer = new ResizeObserver(() => {
     drawing.fit();
-    camera.fit();
+    book?.fit();
   });
   observer.observe(canvas);
   motion.addEventListener('change', () => {
-    if (motion.matches) drawing.settle();
-    camera.settle();
+    intro = settings.INTRO_WIND_DURATION;
+    introStarted = true;
+    air.paint(intro);
+    if (motion.matches) {
+      drawing.settle();
+      book?.settle();
+    }
   }, { signal });
+  const moduleName = settings.THREE_MODULE;
+  import(/* @vite-ignore */ moduleName).then(THREE => {
+    if (signal.aborted) return;
+    book = mountAlbum(THREE, scene.querySelector('.picture-album'), air, motion);
+    book.fit();
+    if (motion.matches) {
+      intro = settings.INTRO_WIND_DURATION;
+      introStarted = true;
+    }
+  }).catch(error => {
+    if (signal.aborted) return;
+    book?.destroy();
+    book = undefined;
+    status.textContent = '相册暂时无法显示。请检查网络或浏览器的 WebGL 支持。';
+    console.warn('Picture 相册 3D 图层加载失败', error);
+  });
 
   let library;
   upload.addEventListener('click', () => input.click(), { signal });
@@ -87,7 +112,7 @@ export function mountPicture(host) {
         }
       }
       if (!signal.aborted) {
-        status.textContent = `已在本地保存 ${saved} 张${failed ? `，${failed} 张无法读取或保存` : ''}。出片将在后续阶段接入。`;
+        status.textContent = `已在本地保存 ${saved} 张${failed ? `，${failed} 张无法读取或保存` : ''}。照片将在后续阶段用于相册。`;
       }
     } catch {
       if (!signal.aborted) status.textContent = '无法打开本地照片库。';
@@ -97,12 +122,24 @@ export function mountPicture(host) {
   }, { signal });
   return {
     update(dt) {
+      if (book && !document.hidden && !motion.matches) {
+        if (!introStarted) {
+          introStarted = true;
+          intro = 0;
+          sound.whoosh();
+        }
+        if (intro < settings.INTRO_WIND_DURATION) {
+          intro = Math.min(settings.INTRO_WIND_DURATION, intro + Math.min(dt, config.display.maxStep));
+          air.paint(intro);
+        }
+      }
       drawing.update(dt);
-      camera.update(dt);
+      book?.update(dt, intro, drawing.sampleWind(settings.BOOK_CENTER_X, settings.WIND_SAMPLE_LAG));
     },
     destroy() {
       lifetime.abort();
       observer.disconnect();
+      book?.destroy();
       sound.destroy();
       library?.close();
       scene.remove();

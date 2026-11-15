@@ -61,61 +61,44 @@ export const picture = {
   },
 };
 
-// Picture 阶段 2。时间用秒，角度为度，屏幕位置用比例。
-export const instantCamera = {
-  // 路径相对于 src。更换素材时在这里更新路径和归一化坐标。
-  CAMERA_PATH: './assets/picture/camera.png',
-  DOODLE_PATHS: [
-    './assets/picture/doodle_01.png', './assets/picture/doodle_02.png',
-    './assets/picture/doodle_03.png', './assets/picture/doodle_04.png',
-    './assets/picture/doodle_05.png', './assets/picture/doodle_06.png',
-  ],
-  ROUGH_URL: 'https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.js',
-  // 原始透明素材的有效图框 [左, 上, 宽, 高]；出片口和镜头坐标按原图计算。
-  CAMERA_CROP: [68 / 736, 73 / 736, 605 / 736, 602 / 736],
-  SLOT_CENTER_X: .369, SLOT_CENTER_Y: .811, SLOT_WIDTH: .435,
-  LENS_CENTER: [.445, .495],
-  PRINT_DIRECTION_DEG: 101, // 0 向右，90 向下，当前略向左
-  CAMERA_X: .50, CAMERA_HEIGHT: .29, CAMERA_HEIGHT_MOBILE: .34,
-  CAMERA_MAX_WIDTH: .74, GROUND_OFFSET: .03, // 机身底边在原地平线下方 3% 屏高
-  CAMERA_BREATH: .01, BREATH_PERIOD: 4,
-  CAMERA_GLOW_ALPHA: .135, CAMERA_GLOW_SIZE: [1.34, 1.17],
-  LENS_GLINT_INTERVAL: [4.5, 9], LENS_GLINT_TIME: .34, LENS_GLINT_SIZE: .063,
-  SHUTTER_SHAKE: 1.65, SHUTTER_TIME: .15, FLASH_TIME: .29, FLASH_SIZE: .16,
+// Picture 相册阶段 2。尺寸使用屏幕比例或书本局部单位，角度为度，时间为秒。
+export const album = {
+  THREE_MODULE: 'three', // 固定 CDN 版本在 index.html 的 importmap
+  BOOK_WIDTH_VW: { desktop: .48, mobile: .86 },
+  BOOK_YAW_DEG: -12, CAMERA_ELEV_DEG: 29, CAMERA_FOV: 35, CAMERA_AZIMUTH_DEG: -26, // 左前方看向书脊
+  BOOK_CENTER_X: .5, BOOK_HEIGHT_LIMIT: .37, // 超宽屏时为流苏和翻起的书页留空间
+  PAGE_WIDTH: 2.05, PAGE_DEPTH: 2.95, PAGES_COUNT: 14,
+  PAGE_SEGMENTS: [40, 8], PAGE_THICKNESS: .012, COVER_DEPTH: .042,
+  COVER_BORDER: .045, SPINE_GAP: .014, SPINE_HEIGHT: .047,
+  OPEN_ARCH: .26, FREE_EDGE_LIFT: .13, // 靠书脊下弯，外缘略微翘起
+  TEXTURE_SIZE: 768, FRAME_VARIANTS: 5, INK_OUTLINE_ALPHA: .68,
+  AMBIENT_LIGHT: 1.52, KEY_LIGHT: 1.08, // 柔和主光与背光，保留排线和奶油色调
 
-  // 轨道半径相对机宽，轨道中心相对机身高度，辉光值为透明度。
-  ORBIT_RX: .75, ORBIT_RY: .205, ORBIT_Y: .58, ORBIT_TILT_DEG: -15,
-  ORBIT_MAX_VIEW_RX: .485, ORBIT_PERIOD: 18, ORBIT_START_DEG: 203, PLANET_SIZE: .076, ORBIT_GLOW: .41,
-  ORBIT_DASH: [2.1, 4], ORBIT_LINE_WIDTH: .76,
-  ORBIT_FRONT_ALPHA: .71, ORBIT_BACK_ALPHA: .46,
-  PLANET_RING_RATIO: [1.82, .42], PLANET_RING_TILT: [-30, 9],
-  PLANET_DEPTH_SCALE: [.87, 1.08], PLANET_GLOW_SIZE: 3.2,
+  // 普通节奏、受风翻页连发、回翻与只掀起页角的概率。
+  FLIP_INTERVAL_MIN: 1.4, FLIP_INTERVAL_MAX: 2.4,
+  FLIP_DURATION_MIN: .9, FLIP_DURATION_MAX: 1.7,
+  CURL_AMOUNT: 1.62, CURL_LAG: .23, EDGE_FLUTTER: .065, HALF_FLIP_ANGLE_DEG: 31,
+  BACKFLIP_CHANCE: .25, HALF_FLIP_CHANCE: .30,
+  GUST_FLIP_COUNT: [2, 5], GUST_FLIP_SPACING: [.10, .28],
+  GUST_THRESHOLD: 9, WIND_SAMPLE_LAG: .18, // 只读阶段 1 的同一个风场
+  MAX_MOVING_PAGES: 6,
 
-  // 出片列队间隔、手动冷却与同屏上限（包括已躺下的相纸）。
-  AUTO_INTERVAL: [4, 6], MANUAL_COOLDOWN: 1.2, BURST_COUNT: [1, 3],
-  BURST_INTERVAL: [.8, 1.4], PHOTO_LIMIT: 4, PHOTO_LIMIT_MOBILE: 3,
-  SLIDE_TIME: [1.6, 2.2], SLIDE_EASE: 2.25, PHOTO_ROTATION: 6,
-  PHOTO_WIDTH: .55, PHOTO_HEIGHT: 1.2, PHOTO_MARGIN: .068, PHOTO_INK_WIDTH: .008,
-  PHOTO_FEED_SQUASH: .43, PHOTO_FEED_WOBBLE: .023, PHOTO_EXIT_EXTRA: .043,
-  PHOTO_FRONT_AT: .5, PHOTO_GLOW_ALPHA: .15, PHOTO_GLOW_SIZE: [1.48, 1.9],
-  // 阶段 2 临时去向。落下、轻弹一次、停留后化成星点。
-  PHOTO_FALL_TIME: .56, PHOTO_BOUNCE_TIME: .28, PHOTO_BOUNCE_HEIGHT: .038,
-  PHOTO_REST_TIME: 4, PHOTO_REST_SQUASH: .30, PHOTO_GROUND_Y: .957, PHOTO_VIEW_MARGIN: .012,
-  PHOTO_SCATTER_TIME: .72, PHOTO_SPARK_COUNT: 18, PHOTO_SPARK_SIZE: [1, 2.65],
-  PHOTO_SPARK_DRIFT: [.075, .24], PHOTO_LANDING_SPREAD: [.16, .62],
+  // 入场风锋按屏幕宽度移动。正数从左向右，负数反向。
+  INTRO_WIND_DURATION: 2.5, INTRO_WIND_STRENGTH: 2.5, INTRO_WIND_DIRECTION: 1,
+  INTRO_WIND_SPEED: 1.4, INTRO_WIND_STREAK_COUNT: [40, 60],
+  INTRO_WIND_LENGTH: [60, 140], INTRO_WIND_STREAK_LIFE: [.28, .64],
+  INTRO_WIND_STREAK_ALPHA: [.12, .46], INTRO_WIND_DUST_COUNT: 64,
+  INTRO_WIND_FLIP_COUNT: [4, 6], INTRO_WIND_FLIP_SPACING: [.10, .22],
+  WHOOSH_VOLUME: .04, WHOOSH_DURATION: 2, WHOOSH_BAND: [430, 960, 390],
 
-  // 白色光影。光池宽高按机宽计算，阴影长度为机宽倍数，模糊用缓存像素。
-  CONTACT_GLOW_ALPHA: .145, CONTACT_GLOW_SIZE: [.9, .08],
-  SHADOW_ENABLED: true, SHADOW_ALPHA: .17, SHADOW_LENGTH_MIN: .5, SHADOW_LENGTH_MAX: 1.55,
-  SHADOW_SQUASH: .16, SHADOW_BLUR: 5, SHADOW_FOLLOWS_PLANET: true,
-  SHADOW_FIXED_DEG: 52, SHADOW_EASE: 5.5,
-  REFLECTION_ENABLED: true, REFLECTION_ALPHA: .095, REFLECTION_SQUASH: .85, REFLECTION_FADE: .36,
-  PHOTO_SHADOW_ENABLED: true, PHOTO_SHADOW_ALPHA: .11, PHOTO_SHADOW_SIZE: [1.03, .28],
-
-  // 奶白细线、暖黄行星、米白相纸、深墨边和白色投影。
+  // 地面层预渲染。倒影使用静态展开相册的缓存，避免逐帧模糊和读回。
+  GROUND_GLOW_ALPHA: .15, GROUND_GLOW_SIZE: [1.14, .19],
+  REFLECTION_ALPHA: .08, REFLECTION_HEIGHT: .30,
+  SHADOW_ALPHA: .20, BOOK_GLOW_ALPHA: .14, BOOK_GLOW_SIZE: [1.18, 1.30],
   colors: {
-    orbit: '#FFF0BE', planetHighlight: '#FFF1AA', planet: '#F2C641', planetShade: '#A36B25',
-    star: '#FFFFFF', warmLight: '#FFE08A', paper: '#EFE8D5', paperInk: '#2C2119',
-    white: '#FFFFFF', fallbackSide: '#AE702D', fallbackInset: '#BF8F4A',
+    paper: '#F1EBDD', paperLight: '#FCF6E9', spineShade: '#B2A291',
+    edges: '#CFC0AC', ink: '#2A2622', cover: '#1B1713', framePaper: '#F6EFE3',
+    glow: '#FFF5DF', white: '#FFFFFF', wind: '#E5EDFF',
+    skylight: '#FFFAEF', bouncedLight: '#A68D75', keyLight: '#FFF7ED',
   },
 };

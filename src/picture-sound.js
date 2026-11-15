@@ -1,9 +1,9 @@
-import { picture, SOUND_ENABLED, SOUND_VOLUME, GLASS_GRAIN_COUNT, GLASS_FREQ_MIN, GLASS_FREQ_MAX, GLASS_DECAY } from './config.js';
+import { album, picture, SOUND_ENABLED, SOUND_VOLUME, GLASS_GRAIN_COUNT, GLASS_FREQ_MIN, GLASS_FREQ_MAX, GLASS_DECAY } from './config.js';
 
 export function makeImpactSound() {
   const settings = picture.sound;
   let enabled = SOUND_ENABLED;
-  let context, master, noise;
+  let context, master, noise, windBus;
   let voices = 0;
   let closed = false;
 
@@ -29,6 +29,40 @@ export function makeImpactSound() {
 
   function sync() {
     if (master) master.gain.setValueAtTime(enabled && !document.hidden ? SOUND_VOLUME : 0, context.currentTime);
+    if (windBus) windBus.gain.setValueAtTime(enabled && !document.hidden ? album.WHOOSH_VOLUME : 0, context.currentTime);
+  }
+
+  function whoosh() {
+    if (closed || !enabled || document.hidden || context?.state !== 'running') return;
+    const duration = album.WHOOSH_DURATION;
+    const now = context.currentTime;
+    const source = context.createBufferSource();
+    // 循环既有白噪声缓冲，不分配另一段长采样，也不重新解锁音频。
+    source.buffer = noise;
+    source.loop = true;
+    const filter = context.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = .48;
+    filter.frequency.setValueAtTime(album.WHOOSH_BAND[0], now);
+    filter.frequency.linearRampToValueAtTime(album.WHOOSH_BAND[1], now + duration * .36);
+    filter.frequency.linearRampToValueAtTime(album.WHOOSH_BAND[2], now + duration);
+    const shape = context.createGain();
+    shape.gain.setValueAtTime(0, now);
+    shape.gain.linearRampToValueAtTime(1, now + duration * .31);
+    shape.gain.linearRampToValueAtTime(0, now + duration);
+    const output = context.createGain();
+    windBus = output;
+    output.gain.value = album.WHOOSH_VOLUME;
+    source.connect(filter).connect(shape).connect(output).connect(context.destination);
+    source.start(now);
+    source.stop(now + duration);
+    source.onended = () => {
+      source.disconnect();
+      filter.disconnect();
+      shape.disconnect();
+      output.disconnect();
+      if (windBus === output) windBus = undefined;
+    };
   }
 
   const random = ([a, b]) => a + (b - a) * Math.random();
@@ -104,7 +138,7 @@ export function makeImpactSound() {
   }
 
   return {
-    unlock, play, sync,
+    unlock, play, sync, whoosh,
     get enabled() { return enabled; },
     toggle() { enabled = !enabled; sync(); if (enabled) unlock(); },
     destroy() { closed = true; if (context) void context.close().catch(() => {}); },

@@ -109,7 +109,7 @@ export function makeNextRoute(stage) {
       return;
     }
     if (pictureLoad) return;
-    pictureHost.textContent = '正在加载拍立得…';
+    pictureHost.textContent = '正在加载相册…';
     const load = import('./picture.js');
     pictureLoad = load;
     load.then(({ mountPicture }) => {
@@ -118,7 +118,7 @@ export function makeNextRoute(stage) {
       pictureScene = mountPicture(pictureHost);
     }).catch(error => {
       if (pictureLoad !== load) return;
-      pictureHost.textContent = '拍立得加载失败，请返回板块页后重试。';
+      pictureHost.textContent = '相册加载失败，请返回板块页后重试。';
       console.error('Picture scene unavailable:', error);
     });
   }

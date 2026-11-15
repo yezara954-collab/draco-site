@@ -31,20 +31,27 @@ export function makeWind(range, random) {
       next = time + range(WIND_GUST_INTERVAL);
     }
     gusts = gusts.filter(gust => time < gust.start + gust.attack + gust.release + settings.lag[1]);
-    return strand => {
+    const sample = (strand, withGust = false) => {
       const x = strand.x / width * 7;
       const t = time - strand.lag;
       const phase = t * WIND_NOISE_SPEED + 12;
       const limit = Math.sin(SWAY_AMPLITUDE) * 1.26;
       let force = WIND_BASE * (noise(x, phase) * .72 + noise(x * 2.1 + 19, phase * .67) * .28);
+      let strongestGust = null;
       for (const gust of gusts) {
         const age = t - gust.start;
         if (age <= 0 || age >= gust.attack + gust.release) continue;
         const envelope = age < gust.attack ? ease(age / gust.attack) : 1 - ease((age - gust.attack) / gust.release);
-        force += gust.force * envelope * noise(x * .65 + 8, gust.start * .17);
+        const local = gust.force * envelope * noise(x * .65 + 8, gust.start * .17);
+        force += local;
+        if (withGust && (!strongestGust || Math.abs(local * settings.gravity) > Math.abs(strongestGust.force))) {
+          strongestGust = { id: gust.start, force: local * settings.gravity };
+        }
       }
-      return Math.max(-limit, Math.min(limit, force)) * settings.gravity;
+      const acceleration = Math.max(-limit, Math.min(limit, force)) * settings.gravity;
+      return withGust ? { force: acceleration, gust: strongestGust } : acceleration;
     };
+    return sample;
   };
 }
 

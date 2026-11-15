@@ -86,7 +86,7 @@ function makeSprites() {
   };
 }
 
-export function makeSky(canvas, motion, onImpact) {
+export function makeSky(canvas, motion, onImpact, entryWind) {
   const ctx = canvas.getContext('2d', { alpha: false });
   const sprites = makeSprites();
   const rng = makeRandom(display.seed);
@@ -102,7 +102,7 @@ export function makeSky(canvas, motion, onImpact) {
   let nextDrop = range([DROP_INTERVAL_MIN, DROP_INTERVAL_MAX]);
   const windRandom = makeRandom(display.seed + 612);
   const windAt = makeWind(bounds => range(bounds, windRandom), windRandom);
-  let horizon;
+  let horizon, windSample;
 
   function fit() {
     const w = Math.max(1, canvas.clientWidth);
@@ -315,8 +315,10 @@ export function makeSky(canvas, motion, onImpact) {
     accumulator += Math.min(dt, rope.maxCatchup);
     while (accumulator >= rope.step) {
       physicsTime += rope.step;
-      const force = windAt(physicsTime, width);
-      for (const strand of strands) stepRope(strand.rope, force(strand));
+      windSample = windAt(physicsTime, width);
+      for (const strand of strands) {
+        stepRope(strand.rope, windSample(strand) + (entryWind?.(strand.x / width) ?? 0));
+      }
       accumulator -= rope.step;
     }
     if (clock >= nextDrop) releaseGroup();
@@ -343,6 +345,7 @@ export function makeSky(canvas, motion, onImpact) {
 
   return {
     fit, update,
+    sampleWind(x, lag) { return windSample?.({ x: x * width, lag }, true); },
     settle() {
       clearFalls();
       for (const { rope: { nodes, segment } } of strands) {
