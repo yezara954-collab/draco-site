@@ -1,17 +1,14 @@
 import { album as c, picture } from './config.js';
-import { makePageLight } from './picture-album-light.js';
+import { makePageShadow } from './picture-album-light.js';
 import { makeAlbumArt } from './picture-album-paper.js';
-import { frontArrival, integer, random } from './picture-album-air.js';
+import { frontArrival, random } from './picture-album-air.js';
 
 const radians = x => x * Math.PI / 180;
 const clamp = value => Math.max(0, Math.min(1, value));
 
-function pageProgress(t) {
-  const crest = .51;
-  if (t < .44) return crest * (1 - (1 - t / .44) ** 2.35);
-  if (t < .55) return crest + (t - .44) * .10;
-  const fall = clamp((t - .55) / .45);
-  return .521 + .479 * fall * fall * (3 - 2 * fall);
+function pageProgress(t, hero = false) {
+  const phase = clamp(t);
+  return hero ? phase * phase * (3 - 2 * phase) : phase * (2 - phase);
 }
 
 export function mountAlbum(T, canvas, air, motion) {
@@ -22,7 +19,7 @@ export function mountAlbum(T, canvas, air, motion) {
   const book = new T.Group();
   book.rotation.y = radians(c.BOOK_YAW_DEG);
   scene.add(book);
-  const pageLight = makePageLight(T);
+  const pageShadow = makePageShadow(T);
 
   const camera = new T.PerspectiveCamera(c.CAMERA_FOV, 1, .1, 120);
   const elevation = radians(c.CAMERA_ELEV_DEG);
@@ -31,7 +28,7 @@ export function mountAlbum(T, canvas, air, motion) {
   let art, stacks, mobile;
   let w = 0, h = 0, dpr = 0;
   let clock = 0, active = [], sweep = null;
-  let fromSide = 1, nextSweepAt = Infinity;
+  let fromSide = 1, nextSweepAt = Infinity, sweepScale = 1;
   let localWind = 0;
 
   function setStacks() {
@@ -60,10 +57,11 @@ export function mountAlbum(T, canvas, air, motion) {
     const variants = Array.from({ length: count }, (_, i) => i % c.FRAME_VARIANTS);
     stacks = [[], variants];
     const ghostCount = Math.min(c.MOTION_BLUR_GHOSTS.length, c.MOTION_BLUR_ALPHA.length);
-    art = makeAlbumArt(T, book, count, pageLight, mobile ? Math.floor(ghostCount * picture.display.mobileFactor) : ghostCount);
+    art = makeAlbumArt(T, book, count, pageShadow, mobile ? Math.floor(ghostCount * picture.display.mobileFactor) : ghostCount);
     setStacks();
     if (Number.isFinite(nextSweepAt) || sweep) nextSweepAt = clock;
     fromSide = 1;
+    sweepScale = 1;
     sweep = null;
     active = [];
   }
@@ -120,7 +118,7 @@ export function mountAlbum(T, canvas, air, motion) {
     const dy = box.bottom - h * picture.ground.y;
     camera.setViewOffset(w, h, dx, dy, w, h);
     const bounds = { left: box.left - dx, right: box.right - dx, top: box.top - dy, bottom: box.bottom - dy };
-    pageLight.fit(bounds, w, h, canvas, mobile);
+    pageShadow.fit(bounds, w, h, canvas, mobile);
     const visiblePages = active.flatMap(({ paper }) => [paper.mesh, ...paper.ghosts]).filter(mesh => mesh.visible);
     visiblePages.forEach(mesh => { mesh.visible = false; });
     renderer.render(scene, camera);
@@ -133,7 +131,7 @@ export function mountAlbum(T, canvas, air, motion) {
     const total = stacks[fromSide].length;
     sweep = {
       from: fromSide, to: 1 - fromSide, total, issued: 0, at: clock,
-      hero: integer([Math.floor(total * .35), Math.floor(total * .65)]),
+      hero: total - 1,
       landed: Array(total).fill(null),
     };
   }
@@ -146,12 +144,12 @@ export function mountAlbum(T, canvas, air, motion) {
     const end = c.COVER_DEPTH + (rank + 1) * c.PAGE_THICKNESS + .004;
     const variant = stacks[from].pop();
     const hero = rank === sweep.hero;
-    const duration = random(hero ? c.HERO_FLIP_DURATION : [c.FLURRY_PAGE_DURATION_MIN, c.FLURRY_PAGE_DURATION_MAX]);
+    const duration = random(hero ? c.HERO_FLIP_DURATION : [c.FLURRY_PAGE_DURATION_MIN, c.FLURRY_PAGE_DURATION_MAX]) * sweepScale;
     paper.mesh.material = art.pages[variant];
     paper.mesh.visible = true;
     active.push({ paper, from, start, end, time: clock, phase: Math.random() * 6, hero, variant, rank, duration });
     sweep.issued++;
-    sweep.at = clock + random([c.FLURRY_STAGGER_MIN, c.FLURRY_STAGGER_MAX]);
+    sweep.at += random([c.FLURRY_STAGGER_MIN, c.FLURRY_STAGGER_MAX]) * sweepScale;
     setStacks();
     return true;
   }
@@ -176,20 +174,23 @@ export function mountAlbum(T, canvas, air, motion) {
         landed = true;
       }
       if (landed) {
-        // 即使中段慢页晚落，纸摞仍以起翻顺序叠放。
+        // 单页时长略有差异，纸摞仍以起翻顺序叠放。
         stacks[sweep.to] = sweep.landed.filter(variant => variant !== null);
         setStacks();
       }
-      if (sweep.issued < sweep.total && clock >= sweep.at) launch();
+      while (sweep.issued < sweep.total && clock >= sweep.at) {
+        if (!launch()) break;
+      }
       if (sweep.issued === sweep.total && !active.length) {
         fromSide = sweep.to;
         sweep = null;
-        nextSweepAt = clock + random([c.SWEEP_PAUSE_MIN, c.SWEEP_PAUSE_MAX]);
+        nextSweepAt = clock + c.SWEEP_TURN_BEAT;
+        sweepScale = Math.max(c.SWEEP_MIN_SCALE, sweepScale * c.SWEEP_ACCEL);
       }
     }
     for (const flip of active) {
       const progress = (clock - flip.time) / flip.duration;
-      const turning = pageProgress(progress);
+      const turning = pageProgress(progress, flip.hero);
       const side = flip.from ? 1 : -1;
       flip.paper.pose(side, flip.start, flip.end, turning, flip.hero ? .23 : .065, clock * 18 + flip.phase,
         localWind, Math.PI, c.PAGE_WIDTH, c.PAGE_DEPTH, flip.hero ? .68 : 1);
@@ -203,8 +204,7 @@ export function mountAlbum(T, canvas, air, motion) {
         ghost.position.set(Math.sin(angle) * hinge, (1 - Math.cos(angle)) * hinge, -.006 * (i + 1));
       });
     }
-    const lit = pageLight.sample(lights);
-    air.glowAt(pageLight.candidates, lit);
+    pageShadow.sample(lights);
     renderer.render(scene, camera);
   }
 
@@ -212,8 +212,7 @@ export function mountAlbum(T, canvas, air, motion) {
     fit, update,
     settle() {
       build(mobile);
-      pageLight.clear();
-      air.glowAt([], 0);
+      pageShadow.clear();
       renderer.render(scene, camera);
     },
     destroy() {

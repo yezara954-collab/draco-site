@@ -1,4 +1,5 @@
 import { makeOrbitSky } from './orbit-sky.js';
+import { installSiteAudioFallbacks, unlockSiteAudio } from './site-audio.js';
 import { ORBIT as settings, ORBIT_SKY } from './motion-config.js';
 import picturePhoto from './assets/covers/cover-picture-back.webp';
 
@@ -65,6 +66,7 @@ function routeBack(link, fallback, expected, sync) {
 }
 
 export function makeNextRoute(stage) {
+  installSiteAudioFallbacks();
   const screen = document.createElement('section');
   screen.className = 'orbit-scene';
   screen.setAttribute('aria-label', '板块');
@@ -171,6 +173,7 @@ export function makeNextRoute(stage) {
       } else if (id === 'picture' && !button.classList.contains('is-flipped')) {
         showPictureBack(true);
       } else if (id !== 'music' || !cover || event.detail === 0 || event.target.closest('.music-pause')) {
+        if (id === 'picture') unlockSiteAudio();
         push('#/' + id, ORBIT);
       }
     });

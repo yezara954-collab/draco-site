@@ -262,6 +262,7 @@ export function makeSky(canvas, motion, onImpact, onChime) {
         lamp.warm = strand.warm;
         lamp.arms = strand.arms === 0 ? 4 : 5;
         lamp.alpha = growth * mix(.72, 1, wave(clock * 1.8 + strand.phase));
+        lamp.shadowAlpha = growth;
         lamp.falling = false;
         lights.push(lamp);
       }
@@ -287,6 +288,7 @@ export function makeSky(canvas, motion, onImpact, onChime) {
       lamp.warm = drop.strand.warm;
       lamp.arms = drop.strand.arms === 0 ? 4 : 5;
       lamp.alpha = .98;
+      lamp.shadowAlpha = 1;
       lamp.falling = true;
       lights.push(lamp);
     }

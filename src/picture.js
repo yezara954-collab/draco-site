@@ -1,3 +1,4 @@
+import { getSiteAudioContext } from './site-audio.js';
 import { picture as config, album as settings } from './config.js';
 import { makeAlbumAir } from './picture-album-air.js';
 import { mountAlbum } from './picture-album.js';
@@ -19,7 +20,6 @@ export function mountPicture(host) {
   scene.innerHTML = `
     <canvas class="picture-sky" aria-hidden="true"></canvas>
     <canvas class="picture-ground-light" aria-hidden="true"></canvas>
-    <canvas class="picture-ground-stars" aria-hidden="true"></canvas>
     <canvas class="picture-album" aria-hidden="true"></canvas>
     <div class="picture-controls">
       <div class="picture-actions">
@@ -54,7 +54,7 @@ export function mountPicture(host) {
   let introStarted = false;
   const drawing = makeSky(canvas, motion, sound.play, sound.chime);
   drawing.fit();
-  const air = makeAlbumAir(scene.querySelector('.picture-ground-light'), scene.querySelector('.picture-ground-stars'));
+  const air = makeAlbumAir(scene.querySelector('.picture-ground-light'));
   const observer = new ResizeObserver(() => {
     drawing.fit();
     book?.fit();
@@ -124,6 +124,8 @@ export function mountPicture(host) {
       if (albumReady && !document.hidden && !motion.matches) {
         if (!introStarted) {
           introStarted = true;
+          const state = getSiteAudioContext()?.state === 'running' ? 'running' : 'suspended';
+          console.info(`audio state at intro: ${state}`);
           intro = 0;
         }
         if (intro < settings.INTRO_WIND_DURATION) {

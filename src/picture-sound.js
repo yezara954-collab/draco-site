@@ -1,3 +1,4 @@
+import { getSiteAudioContext, unlockSiteAudio } from './site-audio.js';
 import { album, picture, SOUND_ENABLED, SOUND_VOLUME, GLASS_GRAIN_COUNT, GLASS_FREQ_MIN, GLASS_FREQ_MAX, GLASS_DECAY } from './config.js';
 
 export function makeImpactSound() {
@@ -8,23 +9,23 @@ export function makeImpactSound() {
   let closed = false;
 
   function unlock() {
-    if (closed || !enabled) return;
-    const Audio = window.AudioContext || window.webkitAudioContext;
-    if (!Audio) return;
-    try {
-      if (!context) {
-        context = new Audio();
-        master = context.createGain();
-        master.gain.value = document.hidden ? 0 : SOUND_VOLUME;
-        master.connect(context.destination);
-        noise = context.createBuffer(1, Math.ceil(context.sampleRate * settings.noiseTime[1]), context.sampleRate);
-        const samples = noise.getChannelData(0);
-        for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
-      }
-      if (context.state !== 'running') void context.resume().catch(() => {});
-    } catch {
-      // 浏览器拒绝音频时仍可正常播放画面。
-    }
+    if (!closed && enabled) unlockSiteAudio();
+  }
+
+  function ready() {
+    if (closed || !enabled || document.hidden) return false;
+    context = getSiteAudioContext();
+    return context?.state === 'running';
+  }
+
+  function prepareImpact() {
+    if (master) return;
+    master = context.createGain();
+    master.gain.value = SOUND_VOLUME;
+    master.connect(context.destination);
+    noise = context.createBuffer(1, Math.ceil(context.sampleRate * settings.noiseTime[1]), context.sampleRate);
+    const samples = noise.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
   }
 
   function sync() {
@@ -67,7 +68,7 @@ export function makeImpactSound() {
   }
 
   function chime(speed) {
-    if (!album.CHIME_INTRO_ENABLED || !enabled || document.hidden || context?.state !== 'running' ||
+    if (!album.CHIME_INTRO_ENABLED || !ready() ||
         chimes >= album.CHIME_MAX_VOICES || speed <= 0) return;
     if (!swayBus) {
       swayBus = context.createGain();
@@ -97,7 +98,8 @@ export function makeImpactSound() {
   }
 
   function play() {
-    if (!enabled || document.hidden || context?.state !== 'running' || voices >= settings.voices) return;
+    if (!ready() || voices >= settings.voices) return;
+    prepareImpact();
     voices++;
     const now = context.currentTime;
     const volume = random([.68, 1]);
@@ -138,6 +140,10 @@ export function makeImpactSound() {
     unlock, play, sync, chime,
     get enabled() { return enabled; },
     toggle() { enabled = !enabled; sync(); if (enabled) unlock(); },
-    destroy() { closed = true; if (context) void context.close().catch(() => {}); },
+    destroy() {
+      closed = true;
+      master?.disconnect();
+      swayBus?.disconnect();
+    },
   };
 }
