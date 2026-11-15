@@ -76,7 +76,7 @@ export function createRope(length, phase, random, reduced, wobble) {
   return { nodes, segment, drag, samples, lag: mix(...settings.lag, random()) };
 }
 
-export function stepRope(rope, force) {
+export function stepRope(rope, force, localForce) {
   const { nodes, segment, drag } = rope;
   const dt = settings.step;
   for (let i = 1; i < nodes.length; i++) {
@@ -86,6 +86,7 @@ export function stepRope(rope, force) {
     node.fromX = node.px = node.x;
     node.fromY = node.py = node.y;
     node.x += vx + force * dt ** 2 * node.mass;
+    if (localForce) node.x += localForce(node) * dt ** 2 * node.mass;
     node.y += vy + settings.gravity * dt ** 2;
   }
   for (let pass = 0; pass < settings.iterations; pass++) {

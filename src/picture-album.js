@@ -1,6 +1,7 @@
 import { album as c, picture } from './config.js';
 import { makePageShadow } from './picture-album-light.js';
-import { makeAlbumArt } from './picture-album-paper.js';
+import { makeAlbumArt, pageFrames } from './picture-album-paper.js';
+import { makePhotoFlight } from './picture-photo.js';
 import { frontArrival, random } from './picture-album-air.js';
 
 const radians = x => x * Math.PI / 180;
@@ -11,7 +12,7 @@ function pageProgress(t, hero = false) {
   return hero ? phase * phase * (3 - 2 * phase) : phase * (2 - phase);
 }
 
-export function mountAlbum(T, canvas, air, motion) {
+export function mountAlbum(T, canvas, air, motion, readPhotoWind) {
   const renderer = new T.WebGLRenderer({ canvas, alpha: true, antialias: true });
   renderer.setClearColor(0, 0);
   renderer.outputColorSpace = T.SRGBColorSpace;
@@ -22,6 +23,7 @@ export function mountAlbum(T, canvas, air, motion) {
   const pageShadow = makePageShadow(T);
 
   const camera = new T.PerspectiveCamera(c.CAMERA_FOV, 1, .1, 120);
+  const photo = makePhotoFlight(T, scene, camera, book);
   const elevation = radians(c.CAMERA_ELEV_DEG);
   const azimuth = radians(c.CAMERA_AZIMUTH_DEG);
   const counter = new T.Vector3();
@@ -29,12 +31,19 @@ export function mountAlbum(T, canvas, air, motion) {
   let w = 0, h = 0, dpr = 0;
   let clock = 0, active = [], sweep = null;
   let fromSide = 1, nextSweepAt = Infinity, sweepScale = 1;
-  let localWind = 0;
+  let localWind = 0, launches = 0;
+  const photoAnchors = [];
 
   function setStacks() {
-    return art.stationary.map((stack, side) => stack.setHeight(
-      stacks[side].length, art.pages[stacks[side].at(-1) ?? side],
-    ));
+    photoAnchors.length = 0;
+    art.stationary.forEach((stack, side) => {
+      const count = stacks[side].length;
+      const variant = stacks[side].at(-1) ?? side;
+      stack.setHeight(count, art.pages[variant]);
+      if (count) for (const frame of pageFrames(variant)) {
+        photoAnchors.push({ side: side ? 1 : -1, count, frame });
+      }
+    });
   }
 
   function disposeBook() {
@@ -117,12 +126,15 @@ export function mountAlbum(T, canvas, air, motion) {
     const dx = (box.left + box.right) / 2 - w * c.BOOK_CENTER_X;
     const dy = box.bottom - h * picture.ground.y;
     camera.setViewOffset(w, h, dx, dy, w, h);
+    photo.fit(w, h, mobile, dpr);
     const bounds = { left: box.left - dx, right: box.right - dx, top: box.top - dy, bottom: box.bottom - dy };
     pageShadow.fit(bounds, w, h, canvas, mobile);
     const visiblePages = active.flatMap(({ paper }) => [paper.mesh, ...paper.ghosts]).filter(mesh => mesh.visible);
     visiblePages.forEach(mesh => { mesh.visible = false; });
+    photo.group.visible = false;
     renderer.render(scene, camera);
     air.groundAt(canvas, bounds);
+    photo.group.visible = true;
     visiblePages.forEach(mesh => { mesh.visible = true; });
     renderer.render(scene, camera);
   }
@@ -149,6 +161,7 @@ export function mountAlbum(T, canvas, air, motion) {
     paper.mesh.visible = true;
     active.push({ paper, from, start, end, time: clock, phase: Math.random() * 6, hero, variant, rank, duration });
     sweep.issued++;
+    launches++;
     sweep.at += random([c.FLURRY_STAGGER_MIN, c.FLURRY_STAGGER_MAX]) * sweepScale;
     setStacks();
     return true;
@@ -158,6 +171,7 @@ export function mountAlbum(T, canvas, air, motion) {
     if (!art || motion.matches || document.hidden) return;
     const step = Math.min(dt, picture.display.maxStep);
     clock += step;
+    launches = 0;
     localWind += ((wind?.force ?? 0) / picture.rope.gravity - localWind) * Math.min(1, step * 6);
     if (!sweep && (clock >= nextSweepAt || (nextSweepAt === Infinity && intro >= frontArrival(c.BOOK_CENTER_X)))) {
       beginSweep();
@@ -205,17 +219,20 @@ export function mountAlbum(T, canvas, air, motion) {
       });
     }
     pageShadow.sample(lights);
+    photo.update(step, photoAnchors, Boolean(sweep), launches, readPhotoWind);
     renderer.render(scene, camera);
   }
 
   return {
-    fit, update,
+    fit, update, photoPushes: photo.pushes,
     settle() {
+      photo.clear();
       build(mobile);
       pageShadow.clear();
       renderer.render(scene, camera);
     },
     destroy() {
+      photo.destroy();
       disposeBook();
       renderer.dispose();
       renderer.forceContextLoss();

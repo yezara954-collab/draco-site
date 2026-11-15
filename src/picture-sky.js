@@ -1,5 +1,5 @@
 import {
-  album, picture, TASSEL_COUNT, TASSEL_LENGTH_MIN, TASSEL_LENGTH_MAX, CHROMATIC_OFFSET,
+  album, photoFlight, picture, TASSEL_COUNT, TASSEL_LENGTH_MIN, TASSEL_LENGTH_MAX, CHROMATIC_OFFSET,
   STAR_SIZE_MIN, STAR_SIZE_MAX, STAR_GLOW_SCALE, STAR_GLOW_ALPHA,
   DROP_INTERVAL_MIN, DROP_INTERVAL_MAX, DROP_COUNT_MIN, DROP_COUNT_MAX, DROP_FALL_TIME, SPARK_COUNT,
 } from './config.js';
@@ -107,6 +107,7 @@ export function makeSky(canvas, motion, onImpact, onChime) {
   const fallingTip = {};
   const chimeWeights = Array.from({ length: Math.max(TASSEL_COUNT.desktop, TASSEL_COUNT.mobile) }, Math.random);
   const lights = [];
+  const photoWindSample = { x: 0, lag: album.WIND_SAMPLE_LAG };
   const fallingLights = Array.from({ length: DROP_COUNT_MAX * 2 }, () => ({}));
 
   function fit() {
@@ -344,7 +345,22 @@ export function makeSky(canvas, motion, onImpact, onChime) {
     onImpact();
   }
 
-  function update(dt, intro) {
+  let photoPushes, ropeAnchor;
+  function nearbyPhotoForce(node) {
+    const reach = photoFlight.PHOTO_ROPE_REACH;
+    let force = 0;
+    const x = ropeAnchor + node.x;
+    for (let i = 0; i < photoPushes.count * 2; i += 2) {
+      const dx = x - photoPushes.xy[i];
+      const dy = node.y - photoPushes.xy[i + 1];
+      const distance = Math.hypot(dx, dy);
+      if (distance >= reach) continue;
+      force += (dx < 0 ? -1 : 1) * (1 - distance / reach);
+    }
+    return Math.max(-1, Math.min(1, force)) * photoFlight.PHOTO_ROPE_PUSH;
+  }
+
+  function update(dt, intro, pushes) {
     if (motion.matches || document.hidden) return;
     if (album.CHIME_INTRO_ENABLED && onChime && intro > currentIntro && intro >= 0 && intro < album.INTRO_WIND_DURATION &&
         currentIntro < 1 / album.INTRO_WIND_FRONT_SPEED) {
@@ -358,11 +374,14 @@ export function makeSky(canvas, motion, onImpact, onChime) {
     currentIntro = intro;
     clock += Math.min(dt, display.maxStep);
     accumulator += Math.min(dt, rope.maxCatchup);
+    photoPushes = pushes;
+    const localForce = photoFlight.PHOTO_DISTURBS_TASSELS && photoPushes?.count ? nearbyPhotoForce : undefined;
     while (accumulator >= rope.step) {
       physicsTime += rope.step;
       windSample = windAt(physicsTime, width);
       for (const strand of strands) {
-        stepRope(strand.rope, windSample(strand));
+        if (localForce) ropeAnchor = strand.x;
+        stepRope(strand.rope, windSample(strand), localForce);
       }
       accumulator -= rope.step;
     }
@@ -395,6 +414,11 @@ export function makeSky(canvas, motion, onImpact, onChime) {
   return {
     fit, update, lights,
     sampleWind(x, lag) { return windSample?.({ x: x * width, lag }, true); },
+    samplePhotoWind(x) {
+      // 与书页和流苏共用每个时间步已有的风场，不推进风场状态。
+      photoWindSample.x = x * width;
+      return (windSample?.(photoWindSample) ?? 0) / rope.gravity;
+    },
     settle() {
       currentIntro = album.INTRO_WIND_DURATION;
       clearFalls();

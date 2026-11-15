@@ -71,7 +71,7 @@ export function mountPicture(host) {
   const moduleName = settings.THREE_MODULE;
   import(/* @vite-ignore */ moduleName).then(THREE => {
     if (signal.aborted) return;
-    book = mountAlbum(THREE, scene.querySelector('.picture-album'), air, motion);
+    book = mountAlbum(THREE, scene.querySelector('.picture-album'), air, motion, drawing.samplePhotoWind);
     book.fit();
     if (motion.matches) {
       intro = settings.INTRO_WIND_DURATION;
@@ -132,7 +132,7 @@ export function mountPicture(host) {
           intro = Math.min(settings.INTRO_WIND_DURATION, intro + Math.min(dt, config.display.maxStep));
         }
       }
-      drawing.update(dt, intro);
+      drawing.update(dt, intro, book?.photoPushes);
       book?.update(dt, intro, drawing.sampleWind(settings.BOOK_CENTER_X, settings.WIND_SAMPLE_LAG), drawing.lights);
     },
     destroy() {

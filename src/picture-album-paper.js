@@ -9,6 +9,11 @@ export function arch(u) {
   return c.OPEN_ARCH * Math.sin(Math.PI * u) + c.FREE_EDGE_LIFT * u;
 }
 
+export function pageFrames(variant) {
+  return variant % 5 === 4 ? [[.22, .11, .45], [.37, .53, .45]]
+    : [[.26 + (variant % 3) * .045, .22 + (variant % 4) * .042, .53 + (variant % 2) * .06]];
+}
+
 function pageTexture(T, variant) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = c.TEXTURE_SIZE;
@@ -38,9 +43,7 @@ function pageTexture(T, variant) {
     ctx.fillRect((i * .6180339) % 1, (i * .729513) % 1, .0015, .00125);
   }
 
-  const frames = variant % 5 === 4 ? [[.22, .11, .45], [.37, .53, .45]]
-    : [[.26 + (variant % 3) * .045, .22 + (variant % 4) * .042, .53 + (variant % 2) * .06]];
-  for (const [x, y, w] of frames) {
+  for (const [x, y, w] of pageFrames(variant)) {
     const h = w * width / depth;
     ctx.globalAlpha = .13;
     ctx.fillRect(x + .009, y + .008, w, h);
