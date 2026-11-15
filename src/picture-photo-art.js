@@ -89,19 +89,21 @@ export function loadPhotoTextures(T) {
 
 export function photoMaterial(T) {
   return new T.ShaderMaterial({
+    transparent: true,
     uniforms: {
-      doodle: { value: null }, peel: { value: 0 }, dissolve: { value: -1 }, seed: { value: 0 },
-      curvature: { value: new T.Vector3() }, arch: { value: 0 }, noiseAmount: { value: c.PHOTO_DISSOLVE_NOISE }, feather: { value: c.PHOTO_FEATHER },
-      paper: { value: new T.Color(c.PHOTO_PAPER_COLOR) }, rim: { value: new T.Color(c.PHOTO_DISSOLVE_EDGE) },
+      doodle: { value: null }, peel: { value: 0 }, detached: { value: 0 },
+      grid: { value: new T.Vector2() }, opacity: { value: 1 },
+      curvature: { value: new T.Vector3() }, arch: { value: 0 },
+      paper: { value: new T.Color(c.PHOTO_PAPER_COLOR) },
     },
     vertexShader: `
       uniform float peel, arch;
       uniform vec3 curvature;
       varying vec2 vUvPhoto;
-      varying vec2 vPaperFace;
+      varying vec3 vPaperFace;
       void main() {
         vUvPhoto = uv;
-        vPaperFace = vec2(normal.z, normal.y);
+        vPaperFace = normal;
         vec3 p = position;
         float corner = max(0.0, (p.x + 0.5) * (p.y / ${c.PHOTO_ASPECT.toFixed(3)} + 0.5));
         float offset = p.x * curvature.y;
@@ -112,23 +114,22 @@ export function photoMaterial(T) {
       }`,
     fragmentShader: `
       uniform sampler2D doodle;
-      uniform float dissolve, seed, noiseAmount, feather;
-      uniform vec3 paper, rim;
+      uniform float detached, opacity;
+      uniform vec2 grid;
+      uniform vec3 paper;
       varying vec2 vUvPhoto;
-      varying vec2 vPaperFace;
+      varying vec3 vPaperFace;
       void main() {
         vec2 uv = vUvPhoto;
-        float height = abs(vPaperFace.x) > 0.5 ? uv.y : (abs(vPaperFace.y) > 0.5 ? step(0.0, vPaperFace.y) : uv.y);
-        float mottled = sin(uv.x * 31.0 + seed + height * 9.0) * 0.58 +
-          sin(uv.x * 47.0 - height * 26.0 + seed * 1.31) * 0.25 +
-          sin(uv.x * 101.0 + height * 72.0 + seed) * 0.17;
-        float edge = height + mottled * noiseAmount - dissolve;
-        if (edge < 0.0) discard;
-        vec3 color = paper * (vPaperFace.x > 0.5 ? 1.0 : vPaperFace.x < -0.5 ? 0.87 : 0.74);
-        if (vPaperFace.x > 0.5) color = texture2D(doodle, uv).rgb;
-        float glow = 1.0 - smoothstep(0.004, feather, edge);
-        if (dissolve > 0.0) color = mix(color, rim, glow * 0.86);
-        gl_FragColor = vec4(color, 1.0);
+        if (vPaperFace.z < -0.5) uv.x = 1.0 - uv.x;
+        if (abs(vPaperFace.x) > 0.5) uv.x = step(0.0, vPaperFace.x);
+        if (abs(vPaperFace.y) > 0.5) uv.y = step(0.0, vPaperFace.y);
+        vec2 cell = floor(clamp(uv, 0.0, 0.99999) * grid);
+        float row = mod(cell.x, 2.0) < 1.0 ? cell.y : grid.y - 1.0 - cell.y;
+        if (cell.x * grid.y + row < detached) discard;
+        vec3 color = paper * (vPaperFace.z < -0.5 ? 0.89 : 0.78);
+        if (vPaperFace.z > 0.5) color = texture2D(doodle, vUvPhoto).rgb;
+        gl_FragColor = vec4(color, opacity);
         #include <colorspace_fragment>
       }`,
   });

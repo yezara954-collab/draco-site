@@ -219,7 +219,7 @@ export function mountAlbum(T, canvas, air, motion, readPhotoWind) {
       });
     }
     pageShadow.sample(lights);
-    photo.update(step, photoAnchors, Boolean(sweep), launches, readPhotoWind);
+    photo.update(step, photoAnchors, launches, readPhotoWind);
     renderer.render(scene, camera);
   }
 

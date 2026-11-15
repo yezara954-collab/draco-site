@@ -1,4 +1,4 @@
-import { album, photoFlight as c } from './config.js';
+import { album, picture, photoFlight as c } from './config.js';
 import { arch } from './picture-album-paper.js';
 import { loadPhotoTextures, photoMaterial } from './picture-photo-art.js';
 import { makePhotoDust } from './picture-photo-dust.js';
@@ -18,7 +18,7 @@ export function makePhotoFlight(T, scene, camera, book) {
   const up = new T.Vector3();
   const probe = new T.Vector3();
   const particle = new T.Vector3();
-  const velocity = new T.Vector3();
+  const origin = new T.Vector3();
   const flat = new T.Quaternion().setFromAxisAngle(new T.Vector3(1, 0, 0), -Math.PI / 2);
   const zAxis = new T.Vector3(0, 0, 1);
   const spinAxis = new T.Vector3(.35, .82, .45).normalize();
@@ -41,11 +41,14 @@ export function makePhotoFlight(T, scene, camera, book) {
     frame.visible = false;
     frame.frustumCulled = false;
     group.add(frame);
-    return { mesh, material, frame, framePositions, origin: new T.Vector3(), rest: new T.Quaternion(), width: 1 };
+    return { mesh, material, frame, framePositions, origin: new T.Vector3(), rest: new T.Quaternion(), width: 1, birth: -Infinity };
   });
 
   let textures, disposed = false;
-  let width, height, limit = capacity, count = 0, clock = 0, charge = 0, lastDoodle = -1;
+  let width, height, limit = capacity, count = 0, clock = 0, lastDoodle = -1;
+  let cols = c.DISSOLVE_GRID_COLS.desktop, rows = c.DISSOLVE_GRID_ROWS.desktop;
+  let hasFirstPhoto = false;
+  const pending = Array.from({ length: capacity }, () => ({ remaining: 0, due: 0, deadline: 0 }));
   // 相纸有自己的随机序列，出片与喷尘不会重新排列翻页的随机节奏。
   const entropy = new Uint32Array(1);
   globalThis.crypto.getRandomValues(entropy);
@@ -55,7 +58,6 @@ export function makePhotoFlight(T, scene, camera, book) {
     return seed / 4294967296;
   }
   const random = ([a, b]) => mix(a, b, nextRandom());
-  let interval = random(c.EMIT_END_INTERVAL);
   loadPhotoTextures(T).then(result => {
     if (disposed) result.forEach(texture => texture.dispose());
     else textures = result;
@@ -81,17 +83,53 @@ export function makePhotoFlight(T, scene, camera, book) {
     frame.visible = true;
   }
 
+  function pickLane() {
+    let lane = 0, best = -1;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const candidate = nextRandom() * 2 - 1;
+      let separation = 2;
+      for (const other of slots) {
+        if (other.mesh.visible && clock - other.birth < .84) {
+          separation = Math.min(separation, Math.abs(candidate - other.lane));
+        }
+      }
+      if (separation > best) { lane = candidate; best = separation; }
+      if (best > .45) break;
+    }
+    return lane;
+  }
+
   function emit(anchors) {
-    const slot = slots.find(photo => !photo.mesh.visible);
-    const anchor = anchors[Math.floor(nextRandom() * anchors.length)];
-    const [u, v, span] = anchor.frame;
-    const size = span * album.PAGE_WIDTH * c.PHOTO_SIZE_SCALE;
-    const center = u + span * (.5 + (nextRandom() - .5) * c.PHOTO_ANCHOR_JITTER);
-    const depth = (v - .5) * album.PAGE_DEPTH + span * album.PAGE_WIDTH *
-      (.5 + (nextRandom() - .5) * c.PHOTO_ANCHOR_JITTER);
-    const base = album.COVER_DEPTH + Math.max(1, anchor.count) * album.PAGE_THICKNESS;
-    slot.origin.set(anchor.side * (album.SPINE_GAP + center * album.PAGE_WIDTH), base + arch(center) + .013, depth);
-    book.localToWorld(slot.origin);
+    let slot;
+    for (const item of slots) if (!item.mesh.visible) { slot = item; break; }
+    if (!slot) return false;
+    const offset = Math.floor(nextRandom() * anchors.length);
+    const depthScale = random(c.PHOTO_DEPTH_SCALE);
+    let anchor, center, size;
+    // 优先试另一侧的相框。若都太近，保留请求至下次重试。
+    for (let i = 0; i < anchors.length; i++) {
+      const candidate = anchors[(offset + i) % anchors.length];
+      const [u, v, span] = candidate.frame;
+      center = u + span * (.5 + (nextRandom() - .5) * c.PHOTO_ANCHOR_JITTER);
+      size = span * album.PAGE_WIDTH * c.PHOTO_SIZE_SCALE * depthScale;
+      const z = (v - .5) * album.PAGE_DEPTH + span * album.PAGE_WIDTH *
+        (.5 + (nextRandom() - .5) * c.PHOTO_ANCHOR_JITTER);
+      const y = album.COVER_DEPTH + Math.max(1, candidate.count) * album.PAGE_THICKNESS;
+      origin.set(candidate.side * (album.SPINE_GAP + center * album.PAGE_WIDTH), y + arch(center) + .013, z);
+      book.localToWorld(origin);
+      let crowded = false;
+      for (const other of slots) {
+        if (clock - other.birth >= c.EMIT_CROWD_TIME) continue;
+        const spacing = c.EMIT_CROWD_WIDTH * Math.max(other.width, size);
+        if (origin.distanceToSquared(other.origin) < spacing * spacing) {
+          crowded = true;
+          break;
+        }
+      }
+      if (!crowded) { anchor = candidate; break; }
+    }
+    if (!anchor) return false;
+    slot.origin.copy(origin);
     const slope = (album.OPEN_ARCH * Math.PI * Math.cos(Math.PI * center) + album.FREE_EDGE_LIFT) /
       album.PAGE_WIDTH * anchor.side;
     slot.angle = radians(random(c.PHOTO_ROTATION));
@@ -104,62 +142,84 @@ export function makePhotoFlight(T, scene, camera, book) {
     if (lastDoodle >= 0 && texture >= lastDoodle) texture++;
     lastDoodle = texture;
     uniforms.doodle.value = textures[texture];
-    uniforms.seed.value = nextRandom() * 60;
-    uniforms.dissolve.value = -1;
+    uniforms.detached.value = 0;
+    uniforms.grid.value.set(cols, rows);
+    const [far, near] = c.PHOTO_DEPTH_SCALE;
+    uniforms.opacity.value = slot.opacity = mix(.82, 1, clamp((depthScale - far) / (near - far)));
     slot.width = size;
     slot.birth = clock;
-    slot.rise = random([c.PHOTO_RISE_SPEED_MIN, c.PHOTO_RISE_SPEED_MAX]);
-    slot.drift = random(c.PHOTO_X_DRIFT);
+    slot.rise = c.PHOTO_RISE_SPEED * (1 + (nextRandom() * 2 - 1) * c.PHOTO_SPEED_VARIATION);
+    slot.lane = pickLane();
     slot.spin = radians(c.PHOTO_SPIN_SPEED) * (nextRandom() * 2 - 1);
     slot.phase = nextRandom() * 6.283;
-    const originScreenY = (1 - probe.copy(slot.origin).project(camera).y) * .5;
-    slot.height = Math.min(random([c.PHOTO_DISSOLVE_HEIGHT_MIN, c.PHOTO_DISSOLVE_HEIGHT_MAX]),
-      Math.max(c.PHOTO_DISSOLVE_HEIGHT_MIN, originScreenY - c.PHOTO_DISSOLVE_TOP_ROOM));
+    slot.targetY = picture.ground.y - random([c.PHOTO_DISSOLVE_HEIGHT_MIN, c.PHOTO_DISSOLVE_HEIGHT_MAX]);
     slot.duration = random([c.PHOTO_DISSOLVE_DURATION_MIN, c.PHOTO_DISSOLVE_DURATION_MAX]);
-    slot.dy = slot.dx = slot.released = slot.dustCarry = 0;
+    slot.cols = cols;
+    slot.rows = rows;
+    slot.dy = slot.wind = slot.released = slot.cells = 0;
     mesh.position.copy(slot.origin);
     mesh.quaternion.copy(slot.rest);
     mesh.scale.setScalar(size);
     mesh.visible = true;
     count++;
     frameGlow(slot, anchor);
+    return true;
   }
 
-  function dustFrom(slot, level, dt, viewScale) {
-    const { mesh, material } = slot;
-    const seed = material.uniforms.seed.value;
-    slot.dustCarry += c.DUST_PER_PHOTO * dt / slot.duration;
-    while (slot.dustCarry >= 1) {
-      slot.dustCarry--;
-      const x = nextRandom();
-      let y = clamp(level);
-      for (let i = 0; i < 3; i++) {
-        const noise = Math.sin(x * 31 + seed + y * 9) * .58 +
-          Math.sin(x * 47 - y * 26 + seed * 1.31) * .25 +
-          Math.sin(x * 101 + y * 72 + seed) * .17;
-        y = clamp(level - c.PHOTO_DISSOLVE_NOISE * noise);
-      }
-      particle.set(x - .5, (y - .5) * c.PHOTO_ASPECT, c.PHOTO_THICKNESS);
-      mesh.localToWorld(particle);
-      velocity.copy(right).multiplyScalar(viewScale * random(c.DUST_SPEED_X))
-        .addScaledVector(up, viewScale * random(c.DUST_SPEED_Y));
-      const glint = nextRandom() < c.DUST_GLINT_CHANCE;
-      dust.emit(particle, velocity, random(c.DUST_LIFE), random(c.DUST_SIZE) * (glint ? 1.65 : 1),
-        (glint ? 1 : 0) + nextRandom() * .96);
+  function detachCells(slot, total) {
+    const { mesh, cols: columns, rows: lines } = slot;
+    mesh.updateMatrixWorld(true);
+    while (slot.cells < total) {
+      const index = slot.cells++;
+      const column = Math.floor(index / lines);
+      const next = index % lines;
+      const row = column % 2 ? lines - 1 - next : next;
+      const x = (column + .5) / columns - .5;
+      const y = ((row + .5) / lines - .5) * c.PHOTO_ASPECT;
+      particle.set(x, y, c.PHOTO_THICKNESS * .5).applyMatrix4(mesh.matrixWorld).project(camera);
+      const style = (nextRandom() < c.DUST_GLINT_CHANCE ? 2 : 0) + (nextRandom() < c.DUST_GOLD_RATIO ? 1 : 0);
+      dust.emit(clamp((particle.x + 1) * .5), clamp((1 - particle.y) * .5),
+        c.DUST_WIND_DRIFT * mix(.70, 1.30, nextRandom()), random(c.DUST_FLOAT_TIME),
+        mix(c.DUST_FALL_TIME_MIN, c.DUST_FALL_TIME_MAX, nextRandom()), dust.groundAt(nextRandom()),
+        mix(c.DUST_SIZE_MIN, c.DUST_SIZE_MAX, nextRandom()), style, nextRandom() * Math.PI * 2);
+    }
+    slot.material.uniforms.detached.value = slot.cells;
+  }
+
+  function schedule(launches, anchors) {
+    const firstTime = album.INTRO_WIND_DURATION + c.EMIT_AFTER_WIND;
+    // 用接近开场结尾的起翻预约第一张，跨过翻页换向时也能准时揭开。
+    if (launches && !hasFirstPhoto && clock >= album.INTRO_WIND_DURATION - .5 &&
+        !pending.some(request => request.remaining)) {
+      pending[0].remaining = 1;
+      pending[0].due = Math.max(clock, firstTime);
+      pending[0].deadline = pending[0].due + c.EMIT_MAX_DELAY;
+    }
+    if (!textures || clock < firstTime) return;
+    const elapsed = clamp((clock - firstTime) / Math.max(.01, c.EMIT_RAMP_SECONDS - firstTime));
+    const probability = mix(c.EMIT_PROB_START, c.EMIT_PROB_END, elapsed);
+    for (let i = 0; i < launches && count < limit; i++) {
+      if (!hasFirstPhoto || nextRandom() >= probability) continue;
+      const request = pending.find(item => !item.remaining);
+      if (!request) break;
+      request.remaining = hasFirstPhoto && nextRandom() < c.EMIT_DOUBLE_PROB ? 2 : 1;
+      request.due = clock;
+      request.deadline = clock + c.EMIT_MAX_DELAY;
+    }
+    for (const request of pending) {
+      if (!request.remaining || clock < request.due) continue;
+      if (count >= limit || clock > request.deadline) { request.remaining = 0; continue; }
+      if (!anchors.length || !emit(anchors)) { request.due = clock + c.EMIT_RETRY_DELAY; continue; }
+      hasFirstPhoto = true;
+      request.remaining--;
+      request.due = clock + c.EMIT_DOUBLE_DELAY;
+      request.deadline = request.due + c.EMIT_MAX_DELAY;
     }
   }
 
-  function update(dt, anchors, flipping, launches, readWind) {
+  function update(dt, anchors, launches, readWind) {
     clock += dt;
-    const ramp = smooth(clamp(clock / c.EMIT_RAMP_SECONDS));
-    const gap = mix(c.EMIT_START_INTERVAL, interval, ramp);
-    const boost = flipping ? c.EMIT_FLURRY_BOOST : 1;
-    charge = Math.min(1, charge + dt / gap * boost + launches * c.EMIT_FLIP_NUDGE);
-    if (textures && anchors.length && count < limit && charge >= 1) {
-      emit(anchors);
-      charge = 0;
-      interval = random(c.EMIT_END_INTERVAL) * (.96 + .10 * Math.sin(clock * 1.67));
-    }
+    schedule(launches, anchors);
     right.set(1, 0, 0).applyQuaternion(camera.quaternion);
     up.set(0, 1, 0).applyQuaternion(camera.quaternion);
     pushes.count = 0;
@@ -175,22 +235,42 @@ export function makePhotoFlight(T, scene, camera, book) {
       frame.visible = opacity > 0;
       const viewScale = -probe.copy(slot.origin).applyMatrix4(camera.matrixWorldInverse).z *
         2 * Math.tan(radians(camera.fov / 2));
+      probe.copy(slot.origin).project(camera);
+      const originY = (1 - probe.y) * .5;
+      const aspect = width / height;
+      const originX = (probe.x + 1) * .5 * aspect;
+      // 半对角线给未脱落的边角留足余量，整段消散时至少保有顶部安全边距。
+      const halfCard = slot.width / viewScale * .5 * Math.hypot(1, c.PHOTO_ASPECT);
+      const clearance = c.PHOTO_DISSOLVE_TOP_ROOM + halfCard * 1.06 + c.PHOTO_BOB;
       if (lift >= 1) {
         probe.copy(mesh.position).project(camera);
-        const x = clamp((probe.x + 1) * .5);
-        const wind = readWind?.(x) ?? 0;
-        slot.dx += dt * Math.max(.003, c.PHOTO_WIND_DRIFT + slot.drift + wind * c.PHOTO_WIND_SENSITIVITY);
-        slot.dy += dt * slot.rise * (slot.released ? c.PHOTO_DISSOLVE_RISE_SCALE : 1);
+        const wind = readWind?.(clamp((probe.x + 1) * .5)) ?? 0;
+        slot.wind = Math.min(.038, Math.max(-.038, slot.wind + dt * wind * c.PHOTO_WIND_SENSITIVITY));
+        slot.dy += dt * slot.rise * (slot.released ? .28 : 1);
       }
-      const bob = c.PHOTO_BOB * Math.sin(airtime * 4.1 + slot.phase) * clamp(airtime * 2);
+      const rise = Math.max(0, Math.min(originY - clearance, slot.dy + .04 * open));
+      const u = clamp(rise / .64);
+      const [left, bend, tail] = c.WIND_LANE_CURVE;
+      const curve = -left * Math.sin(2 * Math.PI * u) + bend * smooth(u) + tail * u;
+      const spread = mix(c.WIND_LANE_WIDTH[0], c.WIND_LANE_WIDTH[1], u);
+      const laneX = aspect * .50 + curve + spread * slot.lane;
+      const merge = smooth(clamp(rise / .33));
+      const drift = mix(originX, laneX, merge) - originX + open * .009 +
+        (slot.wind + .006 * Math.sin(airtime * 1.8 + slot.phase)) * merge;
+      const bound = Math.min(halfCard, aspect * .14);
+      const dx = mix(originX, Math.max(bound, Math.min(aspect - bound, originX + drift)), open) - originX;
+      const bob = c.PHOTO_BOB * Math.sin(airtime * 3.7 + slot.phase) * clamp(airtime * 2);
       mesh.position.copy(slot.origin)
-        .addScaledVector(right, (slot.dx + .011 * open) * viewScale)
-        .addScaledVector(up, (slot.dy + .061 * open + bob) * viewScale);
-      heading.copy(camera.quaternion).multiply(twist.setFromAxisAngle(zAxis, slot.angle + .10 * Math.sin(airtime * 2 + slot.phase) * clamp(airtime)))
-        .multiply(twist.setFromAxisAngle(spinAxis, airtime * slot.spin));
+        .addScaledVector(right, dx * viewScale)
+        .addScaledVector(up, (rise + bob) * viewScale);
+      const roll = radians(c.PHOTO_MAX_ROLL) * (.57 * Math.sin(clock * .95 + rise * 2.4) +
+        .28 * Math.sin(airtime * .7 + slot.phase)) + slot.angle * .19;
+      const tiltLimit = radians(c.PHOTO_MAX_TILT);
+      const tilt = tiltLimit * Math.sin(airtime * slot.spin / Math.max(.001, tiltLimit));
+      heading.copy(camera.quaternion).multiply(twist.setFromAxisAngle(zAxis, roll))
+        .multiply(twist.setFromAxisAngle(spinAxis, tilt));
       mesh.quaternion.copy(slot.rest).slerp(heading, open);
-      mesh.scale.setScalar(slot.width * (1 - c.PHOTO_SHRINK * clamp(slot.dy)));
-      material.uniforms.peel.value = Math.sin(Math.PI * lift) * .57 + open * .03 * Math.sin(airtime * 3.2);
+      material.uniforms.peel.value = Math.sin(Math.PI * lift) * .57;
       material.uniforms.arch.value = 1 - open;
 
       if (c.PHOTO_DISTURBS_TASSELS && lift > .5) {
@@ -200,12 +280,11 @@ export function makePhotoFlight(T, scene, camera, book) {
         pushes.xy[i + 1] = (1 - probe.y) * height * .5;
         pushes.count++;
       }
-      if (!slot.released && slot.dy + .061 >= slot.height) slot.released = clock;
+      if (!slot.released && originY - rise <= Math.max(slot.targetY, clearance) + .0001) slot.released = clock;
       if (!slot.released) continue;
-      const progress = (clock - slot.released) / slot.duration;
-      const level = mix(-c.PHOTO_DISSOLVE_NOISE, 1 + c.PHOTO_DISSOLVE_NOISE, clamp(progress));
-      material.uniforms.dissolve.value = level;
-      if (level > -.05 && level < 1.06) dustFrom(slot, level, dt, viewScale);
+      const progress = clamp((clock - slot.released) / slot.duration);
+      detachCells(slot, Math.floor(progress * slot.cols * slot.rows + .00001));
+      material.uniforms.opacity.value = slot.opacity * (1 - .58 * progress);
       if (progress >= 1) {
         mesh.visible = false;
         count--;
@@ -215,8 +294,10 @@ export function makePhotoFlight(T, scene, camera, book) {
   }
 
   function clear() {
-    for (const { mesh, frame } of slots) { mesh.visible = false; frame.visible = false; }
-    clock = charge = count = pushes.count = 0;
+    for (const slot of slots) { slot.mesh.visible = false; slot.frame.visible = false; slot.birth = -Infinity; }
+    clock = count = pushes.count = 0;
+    hasFirstPhoto = false;
+    for (const request of pending) request.remaining = 0;
     dust.clear();
   }
 
@@ -224,7 +305,10 @@ export function makePhotoFlight(T, scene, camera, book) {
     group, pushes, update, clear,
     fit(w, h, mobile, ratio) {
       width = w; height = h;
-      limit = c.PHOTO_MAX_ONSCREEN[mobile ? 'mobile' : 'desktop'];
+      const layout = mobile ? 'mobile' : 'desktop';
+      limit = c.PHOTO_MAX_ONSCREEN[layout];
+      cols = c.DISSOLVE_GRID_COLS[layout];
+      rows = c.DISSOLVE_GRID_ROWS[layout];
       for (let i = slots.length - 1; i >= 0 && count > limit; i--) {
         if (!slots[i].mesh.visible) continue;
         slots[i].mesh.visible = slots[i].frame.visible = false;
