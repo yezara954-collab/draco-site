@@ -79,13 +79,20 @@ export function loadPhotoTextures(T) {
     }
     return images.map((image, index) => drawCard(image, index, rough));
   });
-  return doodles.then(cards => cards.map(card => {
-    const texture = new T.CanvasTexture(card);
-    texture.colorSpace = T.SRGBColorSpace;
-    texture.anisotropy = 4;
-    return texture;
-  }));
+  return doodles.then(cards => cards.map(card => cardTexture(T, card)));
 }
+
+function cardTexture(T, card) {
+  const texture = new T.CanvasTexture(card);
+  texture.colorSpace = T.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+export function uploadedPhotoTexture(T, source) {
+  return cardTexture(T, drawCard(source));
+}
+
 
 export function photoMaterial(T) {
   return new T.ShaderMaterial({

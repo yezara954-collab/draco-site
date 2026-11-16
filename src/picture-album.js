@@ -224,7 +224,7 @@ export function mountAlbum(T, canvas, air, motion) {
   }
 
   return {
-    fit, update, photoPushes: photo.pushes,
+    fit, update, photoPushes: photo.pushes, addPhoto: photo.addPhoto, clearPhotos: photo.clearPhotos,
     get craneCount() { return photo.craneCount; },
     get particleCount() { return photo.particleCount; },
     settle() {

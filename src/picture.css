@@ -44,6 +44,19 @@
   font: .72rem/1.35 system-ui, sans-serif;
   text-align: right;
 }
+.picture-controls .picture-upload-status:empty,
+.picture-controls .picture-upload-note:empty { display: none; }
+.picture-clear {
+  padding: .3rem 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  opacity: .56;
+  font: .65rem/1.3 system-ui, sans-serif;
+  cursor: pointer;
+}
+.picture-clear:hover, .picture-clear:focus-visible { opacity: 1; }
+.picture-clear:focus-visible { outline: 1px solid currentColor; outline-offset: 3px; }
 .picture-actions { display: flex; align-items: center; gap: .55rem; }
 .picture-sound {
   width: 32px; height: 36px; display: grid; place-items: center;

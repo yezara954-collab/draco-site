@@ -4,7 +4,7 @@ import { makeAlbumAir } from './picture-album-air.js';
 import { mountAlbum } from './picture-album.js';
 import { makeSky } from './picture-sky.js';
 import { makeImpactSound } from './picture-sound.js';
-import { openPhotoLibrary, preparePhoto } from './picture-storage.js';
+import { mountPhotoUploads } from './picture-upload.js';
 import './picture.css';
 
 const { palette } = config;
@@ -24,10 +24,13 @@ export function mountPicture(host) {
     <div class="picture-controls">
       <div class="picture-actions">
         <button type="button" class="picture-sound"></button>
-        <button type="button" class="picture-upload">添加照片</button>
+        <button type="button" class="picture-upload" title="照片仅存于当前浏览器，其他访客不可见">添加照片</button>
+        <button type="button" class="picture-clear" hidden>清除照片</button>
       </div>
-      <input type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden>
-      <p class="picture-status" role="status"></p>
+      <input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+      <p class="picture-status picture-upload-status" role="status"></p>
+      <p class="picture-status picture-upload-note" role="status"></p>
+      <p class="picture-status picture-render-status" role="status"></p>
     </div>`;
   host.append(scene);
   const debug = new URLSearchParams(location.search).get('debug') === '1'
@@ -42,9 +45,7 @@ export function mountPicture(host) {
     }, { signal });
   }
   const canvas = scene.querySelector('canvas');
-  const upload = scene.querySelector('.picture-upload');
-  const input = scene.querySelector('input');
-  const status = scene.querySelector('[role="status"]');
+  const status = scene.querySelector('.picture-render-status');
   const motion = matchMedia('(prefers-reduced-motion: reduce)');
   const sound = makeImpactSound();
   const toggle = scene.querySelector('.picture-sound');
@@ -61,6 +62,7 @@ export function mountPicture(host) {
   document.addEventListener('visibilitychange', sound.sync, { signal });
 
   let book, albumReady = false;
+  const uploads = mountPhotoUploads(scene, signal, motion, photo => book?.addPhoto(photo), () => book?.clearPhotos());
   let intro = -1;
   let introStarted = false;
   const drawing = makeSky(canvas, motion, sound.play, sound.chime);
@@ -84,6 +86,7 @@ export function mountPicture(host) {
     if (signal.aborted) return;
     book = mountAlbum(THREE, scene.querySelector('.picture-album'), air, motion);
     book.fit();
+    for (const photo of uploads.photos.values()) book.addPhoto(photo);
     if (motion.matches) {
       intro = settings.INTRO_WIND_DURATION;
       introStarted = true;
@@ -96,40 +99,6 @@ export function mountPicture(host) {
     console.warn('Picture 相册 3D 图层加载失败', error);
   }).finally(() => { albumReady = !signal.aborted; });
 
-  let library;
-  upload.addEventListener('click', () => input.click(), { signal });
-  input.addEventListener('change', async () => {
-    const files = Array.from(input.files);
-    input.value = '';
-    if (!files.length) return;
-    upload.disabled = true;
-    let saved = 0;
-    let failed = 0;
-    try {
-      library ??= await openPhotoLibrary();
-      if (signal.aborted) {
-        library.close();
-        return;
-      }
-      for (const file of files) {
-        try {
-          const photo = await preparePhoto(file, signal);
-          await library.add(photo);
-          saved++;
-        } catch {
-          if (signal.aborted) return;
-          failed++;
-        }
-      }
-      if (!signal.aborted) {
-        status.textContent = `已在本地保存 ${saved} 张${failed ? `，${failed} 张无法读取或保存` : ''}。照片将在后续阶段用于相册。`;
-      }
-    } catch {
-      if (!signal.aborted) status.textContent = '无法打开本地照片库。';
-    } finally {
-      if (!signal.aborted) upload.disabled = false;
-    }
-  }, { signal });
   return {
     update(dt) {
       const started = debug && !document.hidden ? performance.now() : 0;
@@ -169,7 +138,7 @@ export function mountPicture(host) {
       observer.disconnect();
       book?.destroy();
       sound.destroy();
-      library?.close();
+      uploads.destroy();
       scene.remove();
     },
   };

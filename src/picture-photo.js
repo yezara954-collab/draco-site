@@ -1,6 +1,6 @@
-import { album, picture, photoFlight as c } from './config.js';
+import { album, picture, photoFlight as c, photoUpload as upload } from './config.js';
 import { arch } from './picture-album-paper.js';
-import { loadPhotoTextures, photoMaterial } from './picture-photo-art.js';
+import { loadPhotoTextures, photoMaterial, uploadedPhotoTexture } from './picture-photo-art.js';
 import { makePhotoDust } from './picture-photo-dust.js';
 import { craneRiseDistance, makeCraneFlight } from './picture-crane.js';
 
@@ -52,11 +52,14 @@ export function makePhotoFlight(T, scene, camera, book) {
   let width, height, limit = capacity, count = 0, clock = 0, lastDoodle = -1;
   let debrisCount;
   let hasFirstPhoto = false;
+  const userPhotos = new Map();
+  const deck = [], priorities = [];
+  let lastUser = null, priorityAt = 0;
   const pending = Array.from({ length: capacity }, () => ({ remaining: 0, due: 0, deadline: 0 }));
   // 相纸有自己的随机序列，出片与喷尘不会重新排列翻页的随机节奏。
-  const entropy = new Uint32Array(2);
+  const entropy = new Uint32Array(3);
   globalThis.crypto.getRandomValues(entropy);
-  let seed = entropy[0], debrisSeed = entropy[1];
+  let seed = entropy[0], debrisSeed = entropy[1], uploadSeed = entropy[2];
   function nextRandom() {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     return seed / 4294967296;
@@ -70,6 +73,56 @@ export function makePhotoFlight(T, scene, camera, book) {
     if (disposed) result.forEach(texture => texture.dispose());
     else textures = result;
   }).catch(error => { if (!disposed) console.warn('Picture 相纸纹理未加载', error); });
+
+  function uploadRandom() {
+    uploadSeed = (Math.imul(uploadSeed, 1664525) + 1013904223) >>> 0;
+    return uploadSeed / 4294967296;
+  }
+
+  function addPhoto({ id, source, priority }) {
+    if (userPhotos.has(id)) return;
+    const entry = { id, texture: uploadedPhotoTexture(T, source) };
+    userPhotos.set(id, entry);
+    if (deck.length) {
+      const spot = Math.floor(uploadRandom() * (deck.length + 1));
+      deck.splice(spot, 0, entry);
+    }
+    if (priority) priorities.push(entry);
+  }
+
+  function chooseUser(preferred) {
+    if (!preferred && (!userPhotos.size ||
+        (upload.MIX_DOODLE_RATIO > 0 && uploadRandom() < upload.MIX_DOODLE_RATIO))) return null;
+    if (!deck.length) {
+      for (const entry of userPhotos.values()) deck.push(entry);
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(uploadRandom() * (i + 1));
+        const entry = deck[i];
+        deck[i] = deck[j];
+        deck[j] = entry;
+      }
+    }
+    if (preferred) {
+      const index = deck.indexOf(preferred);
+      if (index >= 0) deck.splice(index, 1);
+      return preferred;
+    }
+    const index = deck.length > 1 && deck[0] === lastUser ? 1 : 0;
+    return deck.splice(index, 1)[0];
+  }
+
+  function clearPhotos() {
+    for (const slot of slots) {
+      if (!slot.userPhoto) continue;
+      slot.material.uniforms.doodle.value = textures?.[0] ?? null;
+      slot.userPhoto = null;
+    }
+    for (const entry of userPhotos.values()) entry.texture.dispose();
+    userPhotos.clear();
+    deck.length = priorities.length = 0;
+    lastUser = null;
+    priorityAt = 0;
+  }
 
   function frameGlow(slot, anchor) {
     const { frame, framePositions } = slot;
@@ -91,7 +144,7 @@ export function makePhotoFlight(T, scene, camera, book) {
     frame.visible = true;
   }
 
-  function emit(anchors) {
+  function emit(anchors, preferred = null) {
     let slot;
     for (const item of slots) if (!item.mesh.visible) { slot = item; break; }
     if (!slot) return false;
@@ -121,6 +174,9 @@ export function makePhotoFlight(T, scene, camera, book) {
       if (!crowded) { anchor = candidate; break; }
     }
     if (!anchor) return false;
+    // 优先给用户照片留好一只鹤和一条未占用的航线，再掀起相纸。
+    const reservation = preferred ? cranes.reserve(origin) : null;
+    if (preferred && !reservation) return false;
     slot.origin.copy(origin);
     const slope = (album.OPEN_ARCH * Math.PI * Math.cos(Math.PI * center) + album.FREE_EDGE_LIFT) /
       album.PAGE_WIDTH * anchor.side;
@@ -131,10 +187,15 @@ export function makePhotoFlight(T, scene, camera, book) {
     material.depthWrite = true;
     const uniforms = material.uniforms;
     uniforms.curvature.value.set(center, Math.PI * size / album.PAGE_WIDTH * anchor.side, album.OPEN_ARCH / size);
-    let texture = Math.floor(nextRandom() * (textures.length - (lastDoodle >= 0 ? 1 : 0)));
-    if (lastDoodle >= 0 && texture >= lastDoodle) texture++;
-    lastDoodle = texture;
-    uniforms.doodle.value = textures[texture];
+    const userPhoto = chooseUser(preferred);
+    slot.userPhoto = lastUser = userPhoto;
+    if (userPhoto) uniforms.doodle.value = userPhoto.texture;
+    else {
+      let texture = Math.floor(nextRandom() * (textures.length - (lastDoodle >= 0 ? 1 : 0)));
+      if (lastDoodle >= 0 && texture >= lastDoodle) texture++;
+      lastDoodle = texture;
+      uniforms.doodle.value = textures[texture];
+    }
     uniforms.whiteMix.value = 0;
     const [far, near] = c.PHOTO_DEPTH_SCALE;
     uniforms.opacity.value = slot.opacity = mix(.82, 1, clamp((depthScale - far) / (near - far)));
@@ -154,7 +215,8 @@ export function makePhotoFlight(T, scene, camera, book) {
       Math.min(fast * (1 + c.CRANE_RISE_SPEED_VARIATION), cruise));
     slot.debrisCount = debrisCount;
     slot.shed = 0;
-    slot.crane = null;
+    slot.crane = reservation;
+    slot.craneId = reservation?.flightId;
     slot.folding = false;
     mesh.position.copy(slot.origin);
     mesh.quaternion.copy(slot.rest);
@@ -192,7 +254,9 @@ export function makePhotoFlight(T, scene, camera, book) {
       // 以精确的变形起点取样，避免掉帧后把纸鹤生成在另一处。
       const rise = liftRise + craneRiseDistance(c.MORPH_START_DELAY, slot.cruise);
       morphOrigin.copy(slot.origin).addScaledVector(up, rise * viewScale);
-      slot.crane = cranes.begin(morphOrigin, slot.width, heading, c.MORPH_START_DELAY, slot.cruise);
+      const reserved = slot.crane?.flightId === slot.craneId && slot.crane?.state === 'reserved'
+        ? slot.crane : null;
+      slot.crane = cranes.begin(morphOrigin, slot.width, heading, c.MORPH_START_DELAY, slot.cruise, reserved);
       slot.craneId = slot.crane?.flightId;
     }
     if (slot.crane && (slot.crane.flightId !== slot.craneId || slot.crane.state !== 'forming')) slot.crane = null;
@@ -223,6 +287,15 @@ export function makePhotoFlight(T, scene, camera, book) {
   function schedule(launches, anchors) {
     const firstTime = album.INTRO_WIND_DURATION + c.EMIT_AFTER_WIND;
     if (!textures || clock < firstTime) return;
+    if (priorities.length) {
+      if (clock < priorityAt || count >= limit || !anchors.length) return;
+      if (emit(anchors, priorities[0])) {
+        hasFirstPhoto = true;
+        priorities.shift();
+        priorityAt = clock + mix(...upload.UPLOAD_BURST_SPACING, uploadRandom());
+      } else priorityAt = clock + c.EMIT_RETRY_DELAY;
+      return;
+    }
     // 第一张直接由开场计时触发；之后沿用翻页出片。
     if (!hasFirstPhoto) {
       if (anchors.length) hasFirstPhoto = emit(anchors);
@@ -290,7 +363,7 @@ export function makePhotoFlight(T, scene, camera, book) {
 
   function clear() {
     for (const slot of slots) { slot.mesh.visible = false; slot.frame.visible = false; slot.birth = -Infinity; }
-    clock = count = pushes.count = 0;
+    clock = count = pushes.count = priorityAt = 0;
     hasFirstPhoto = false;
     for (const request of pending) request.remaining = 0;
     dust.clear();
@@ -298,7 +371,7 @@ export function makePhotoFlight(T, scene, camera, book) {
   }
 
   return {
-    group, pushes, update, clear,
+    group, pushes, update, clear, addPhoto, clearPhotos,
     get craneCount() { return cranes.count; },
     get particleCount() { return dust.count; },
     fit(w, h, mobile, ratio) {
@@ -309,7 +382,7 @@ export function makePhotoFlight(T, scene, camera, book) {
       for (let i = slots.length - 1; i >= 0 && count > limit; i--) {
         if (!slots[i].mesh.visible) continue;
         const { crane, craneId } = slots[i];
-        if (crane?.flightId === craneId && crane?.state === 'forming') cranes.drop(crane);
+        if (crane?.flightId === craneId && (crane?.state === 'forming' || crane?.state === 'reserved')) cranes.drop(crane);
         slots[i].mesh.visible = slots[i].frame.visible = false;
         count--;
       }
@@ -319,6 +392,7 @@ export function makePhotoFlight(T, scene, camera, book) {
     },
     destroy() {
       disposed = true;
+      clearPhotos();
       cranes.destroy();
       dust.destroy();
       textures?.forEach(texture => texture.dispose());

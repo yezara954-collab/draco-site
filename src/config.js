@@ -171,3 +171,19 @@ export const photoFlight = {
   PHOTO_DISTURBS_TASSELS: false, PHOTO_ROPE_REACH: 29, PHOTO_ROPE_PUSH: 85,
   ROUGH_MODULE: 'https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.esm.js',
 };
+
+// Picture 阶段 5。照片在当前浏览器内处理，成片和临时纹理都不会上传。
+export const photoUpload = {
+  UPLOAD_MAX_PHOTOS: 24, // 本机照片库上限
+  UPLOAD_MAX_SIDE: 768, // 正方形裁切后保存的最大边长（像素）
+  UPLOAD_QUALITY: .90, // 本机 WebP 保存质量
+  FILM_WARM: .05, // 向暖白混合的比例
+  FILM_WARM_COLOR: [255, 247, 230], // 暖白色（RGB）
+  FILM_DESAT: .08, // 降低饱和度的比例
+  FILM_GRAIN: .012, // 细颗粒的最大亮度扰动
+  FILM_VIGNETTE: .045, // 四角的最大暗角强度
+  MIX_DOODLE_RATIO: 0, // 有自己的照片时，普通出片混入涂鸦的概率
+  UPLOAD_BURST_SPACING: [.50, .80], // 新照片优先出片的最短间隔范围（秒）
+  UPLOAD_NOTICE_SECONDS: 1.8, // 成功提示从出现到淡出的总时长
+  PERSIST_PHOTOS: true, // 本机 IndexedDB 保存开关
+};

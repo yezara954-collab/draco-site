@@ -193,21 +193,29 @@ export function makeCraneFlight(T, parent, camera, book, dust) {
     root.updateMatrixWorld(true);
   }
 
-  function begin(world, width, paperPose, airAge, cruise) {
+  function reserve(world) {
     if (count >= limit) return null;
     let slot;
     for (const candidate of slots) if (candidate.state === 'idle') { slot = candidate; break; }
     if (!slot) return null;
-    const depth = -probe.copy(world).applyMatrix4(camera.matrixWorldInverse).z;
-    probe.copy(world).project(camera);
-    const x = .5 + .5 * probe.x, y = .5 - .5 * probe.y;
-    const lane = pickLane(x);
+    const lane = pickLane(.5 + .5 * probe.copy(world).project(camera).x);
     if (lane < 0) return null;
     reserved[lane] = 1;
     count++;
-    slot.state = 'forming';
+    slot.state = 'reserved';
     slot.flightId = ++serial;
     slot.lane = lane;
+    return slot;
+  }
+
+  function begin(world, width, paperPose, airAge, cruise, reservation) {
+    const slot = reservation ?? reserve(world);
+    if (!slot) return null;
+    const { lane } = slot;
+    const depth = -probe.copy(world).applyMatrix4(camera.matrixWorldInverse).z;
+    probe.copy(world).project(camera);
+    const x = .5 + .5 * probe.x, y = .5 - .5 * probe.y;
+    slot.state = 'forming';
     slot.side = Math.sign(angles[lane]) || (random() < .5 ? -1 : 1);
     slot.depth = depth;
     slot.viewSize = 2 * depth * Math.tan(camera.fov * DEG / 2);
@@ -275,7 +283,7 @@ export function makeCraneFlight(T, parent, camera, book, dust) {
 
   function drop(slot) {
     if (slot.state === 'idle') return;
-    if (slot.state === 'forming') reserved[slot.lane] = 0;
+    if (slot.state === 'forming' || slot.state === 'reserved') reserved[slot.lane] = 0;
     slot.state = 'idle';
     slot.root.visible = false;
     count--;
@@ -365,7 +373,7 @@ export function makeCraneFlight(T, parent, camera, book, dust) {
   }
 
   return {
-    begin, fold, launch, drop,
+    reserve, begin, fold, launch, drop,
     get count() { return count; },
     update(dt) {
       if (dt <= 0) return;
