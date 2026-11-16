@@ -71,7 +71,7 @@ export const album = {
   PAGE_SEGMENTS: [40, 8], PAGE_THICKNESS: .012, COVER_DEPTH: .042,
   COVER_BORDER: .045, SPINE_GAP: .014, SPINE_HEIGHT: .047,
   OPEN_ARCH: .26, FREE_EDGE_LIFT: .13, // 靠书脊下弯，外缘略微翘起
-  TEXTURE_SIZE: 768, FRAME_VARIANTS: 5, INK_OUTLINE_ALPHA: .68,
+  TEXTURE_SIZE: 768, INK_OUTLINE_ALPHA: .68,
   // 白纸和中性灰星影。偏移按短边缩放，半径下限和羽化宽度用 CSS 像素。
   PAGE_COLOR: '#F4F4F2', PAGE_EDGE_COLOR: '#D9D9D6', INK_COLOR: '#3A3A3A',
   PAGE_SHADE: '#CFCFCB',
@@ -111,9 +111,9 @@ export const album = {
 
 // Picture 阶段 3。长度按屏高比例或相框宽度比例，时间用秒，角度用度。
 export const photoFlight = {
-  PHOTO_SIZE_SCALE: .65, PHOTO_DEPTH_SCALE: [.8, 1.1],
+  PHOTO_DEPTH_SCALE: [.8, 1.1],
   PHOTO_FRAME_FLASH: .3,
-  PHOTO_ROTATION: [-8, 8], PHOTO_ANCHOR_JITTER: .072,
+  PHOTO_ROTATION: [-8, 8],
   PHOTO_PAPER_COLOR: '#F8F8F6', PHOTO_INK_COLOR: '#3A3A3A', PHOTO_FRAME_COLOR: '#FFE9B0',
   PHOTO_TEXTURE_SIZE: 384, PHOTO_ASPECT: 1.17, PHOTO_THICKNESS: .009, PHOTO_IMAGE_MARGIN: .077,
   // 开场风结束后 0.6 秒出首张；之后翻页出片概率用 15 秒升至上限。
@@ -169,7 +169,6 @@ export const photoFlight = {
   // 调试面板刷新间隔（秒）。
   CRANE_DEBUG_INTERVAL: .5,
   PHOTO_DISTURBS_TASSELS: false, PHOTO_ROPE_REACH: 29, PHOTO_ROPE_PUSH: 85,
-  ROUGH_MODULE: 'https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.esm.js',
 };
 
 // Picture 阶段 5。照片在当前浏览器内处理，成片和临时纹理都不会上传。
@@ -182,8 +181,18 @@ export const photoUpload = {
   FILM_DESAT: .08, // 降低饱和度的比例
   FILM_GRAIN: .012, // 细颗粒的最大亮度扰动
   FILM_VIGNETTE: .045, // 四角的最大暗角强度
-  MIX_DOODLE_RATIO: 0, // 有自己的照片时，普通出片混入涂鸦的概率
+  MIX_DEFAULT_RATIO: 0, // 有自己的照片时混入默认照片的比例
   UPLOAD_BURST_SPACING: [.50, .80], // 新照片优先出片的最短间隔范围（秒）
   UPLOAD_NOTICE_SECONDS: 1.8, // 成功提示从出现到淡出的总时长
   PERSIST_PHOTOS: true, // 本机 IndexedDB 保存开关
+};
+
+// Picture 阶段 6A。槽位角度以书页平面为基准，显影和弹层时长均为秒。
+export const photoAlbum = {
+  PHOTO_ATLAS_TILE: 256, PHOTO_ATLAS_SIZE: { desktop: 2048, mobile: 1024 }, // 每格分辨率 / 图集尺寸
+  PAGE_LAYOUTS_COUNT: 8, PAGE_PHOTOS_PER_PAGE: [1, 2], // 页版式和每页槽位数
+  WASHI_TAPE_CHANCE: .52, CAPTION_LINES_CHANCE: .68, // 和纸胶带与淡色手写线条概率
+  PHOTO_LIFT_FADE: .30, PHOTO_DEVELOP_DELAY_MIN: 3, PHOTO_DEVELOP_DELAY_MAX: 6, PHOTO_DEVELOP_DURATION: 2,
+  PHOTO_DEVELOP_PAPER: '#f4ead8', PRIORITY_PAGE_PREVIEW: .10, // 优先照片先在纸页上显示，再掀起
+  LIGHTBOX_ENABLED: true, LIGHTBOX_DIM: .80, LIGHTBOX_FADE: .25,
 };

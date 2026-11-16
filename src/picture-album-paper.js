@@ -1,4 +1,5 @@
-import { album as c } from './config.js';
+import { album as c, photoAlbum as a } from './config.js';
+import { pageTexture, makePhotoPage } from './picture-album-layout.js';
 
 const { colors } = c;
 const [columns, rows] = c.PAGE_SEGMENTS;
@@ -9,76 +10,10 @@ export function arch(u) {
   return c.OPEN_ARCH * Math.sin(Math.PI * u) + c.FREE_EDGE_LIFT * u;
 }
 
-export function pageFrames(variant) {
-  return variant % 5 === 4 ? [[.22, .11, .45], [.37, .53, .45]]
-    : [[.26 + (variant % 3) * .045, .22 + (variant % 4) * .042, .53 + (variant % 2) * .06]];
-}
-
-function pageTexture(T, variant) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = c.TEXTURE_SIZE;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(canvas.width, canvas.height);
-  const wash = ctx.createLinearGradient(0, 0, 1, .12);
-  wash.addColorStop(0, c.PAGE_SHADE);
-  wash.addColorStop(.13, c.PAGE_COLOR);
-  wash.addColorStop(1, c.PAGE_COLOR);
-  ctx.fillStyle = wash;
-  ctx.fillRect(0, 0, 1, 1);
-
-  // 书沟排线与纤维纹理烘到纹理，翻页时跟着纸面变形。
-  ctx.strokeStyle = c.INK_COLOR;
-  ctx.lineWidth = .00085;
-  for (let i = 0; i < 125; i++) {
-    const y = (i + .5) / 125;
-    ctx.globalAlpha = .11 + (i % 7) * .018;
-    ctx.beginPath();
-    ctx.moveTo(.003, y);
-    ctx.quadraticCurveTo(.033, y - .003, .058 + .026 * Math.sin(i * 2.4), y + .009);
-    ctx.stroke();
-  }
-  ctx.fillStyle = c.INK_COLOR;
-  ctx.globalAlpha = .045;
-  for (let i = 0; i < 1700; i++) {
-    ctx.fillRect((i * .6180339) % 1, (i * .729513) % 1, .0015, .00125);
-  }
-
-  for (const [x, y, w] of pageFrames(variant)) {
-    const h = w * width / depth;
-    ctx.globalAlpha = .13;
-    ctx.fillRect(x + .009, y + .008, w, h);
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = c.PAGE_COLOR;
-    ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = c.INK_COLOR;
-    ctx.lineWidth = .003;
-    ctx.globalAlpha = .76;
-    ctx.strokeRect(x, y, w, h);
-    ctx.globalAlpha = .41;
-    ctx.lineWidth = .0016;
-    ctx.strokeRect(x + .009, y + .006, w - .018, h - .012);
-    ctx.globalAlpha = .86;
-    ctx.lineWidth = .0022;
-    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-      const cx = x + (sx > 0 ? .024 : w - .024);
-      const cy = y + (sy > 0 ? .017 : h - .017);
-      ctx.beginPath();
-      ctx.moveTo(cx, cy + sy * .037);
-      ctx.lineTo(cx + sx * .054, cy);
-      ctx.lineTo(cx, cy);
-      ctx.closePath();
-      ctx.stroke();
-    }
-  }
-  const texture = new T.CanvasTexture(canvas);
-  texture.colorSpace = T.SRGBColorSpace;
-  texture.anisotropy = 4;
-  return texture;
-}
-
 // 网格以书脊为 u=0；左右面与翻动页共用纹理和网格拓扑。
 export function createPaper(T, ink, material) {
   const geometry = new T.PlaneGeometry(1, 1, columns, rows);
+  geometry.boundingSphere = new T.Sphere(new T.Vector3(), 2 * (width + depth));
   const positions = geometry.attributes.position;
   positions.setUsage(T.DynamicDrawUsage);
   const edgeGeometry = new T.BufferGeometry();
@@ -134,28 +69,21 @@ export function createPaper(T, ink, material) {
   };
 }
 
-export function makeAlbumArt(T, book, count, light, ghostCount) {
+export function makeAlbumArt(T, book, count, light, ghostCount, gallery) {
   const ink = new T.LineBasicMaterial({ color: c.INK_COLOR, transparent: true, opacity: c.INK_OUTLINE_ALPHA });
   const coverInk = new T.LineBasicMaterial({ color: colors.cover });
   const cover = new T.MeshBasicMaterial({ color: colors.cover, side: T.DoubleSide });
   const edgeMaterial = new T.MeshBasicMaterial({ color: c.PAGE_SHADE, side: T.DoubleSide });
   const edgeInk = new T.LineBasicMaterial({ color: c.PAGE_EDGE_COLOR });
-  const pages = Array.from({ length: c.FRAME_VARIANTS }, (_, i) => new T.MeshBasicMaterial({
-    map: pageTexture(T, i), side: T.DoubleSide,
-    polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
-  }));
-  pages.forEach(light.attach);
-  const endpaper = new T.MeshBasicMaterial({
-    color: c.PAGE_COLOR, side: T.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
-  });
-  light.attach(endpaper);
+  const bases = Array.from({ length: a.PAGE_LAYOUTS_COUNT }, (_, i) => pageTexture(T, i));
   const stationary = [-1, 1].map(side => {
     const coverPaper = createPaper(T, coverInk, cover);
     coverPaper.pose(side, c.COVER_DEPTH, c.COVER_DEPTH, 0, 0, 0, 0, Math.PI,
       width + c.COVER_BORDER, depth + 2 * c.COVER_BORDER);
     book.add(coverPaper.mesh);
 
-    const top = createPaper(T, ink, pages[0]);
+    const view = makePhotoPage(T, light, bases, gallery);
+    const top = createPaper(T, ink, view.material);
     book.add(top.mesh);
     // 纸摞的三条可见侧边由一张封闭裙边连起来，独立墨线表现叠纸而非空隙。
     const coordinates = [];
@@ -179,10 +107,10 @@ export function makeAlbumArt(T, book, count, light, ghostCount) {
       return line;
     });
     return {
-      setHeight(number, material) {
+      mesh: top.mesh, bind: view.bind,
+      setHeight(number) {
         const bottom = c.COVER_DEPTH;
         const height = bottom + Math.max(1, number) * c.PAGE_THICKNESS;
-        top.mesh.material = number ? material : endpaper;
         top.pose(side, height, height);
         coordinates.forEach(([u, z], i) => {
           const x = side * (c.SPINE_GAP + u * width);
@@ -211,7 +139,9 @@ export function makeAlbumArt(T, book, count, light, ghostCount) {
     color: colors.white, side: T.DoubleSide, transparent: true, opacity, depthWrite: false,
   }));
   const moving = Array.from({ length: c.MAX_MOVING_PAGES }, () => {
-    const paper = createPaper(T, ink, pages[0]);
+    const view = makePhotoPage(T, light, bases, gallery);
+    const paper = createPaper(T, ink, view.material);
+    paper.bind = view.bind;
     paper.mesh.visible = false;
     book.add(paper.mesh);
     paper.ghosts = ghostMaterials.map(material => {
@@ -222,5 +152,5 @@ export function makeAlbumArt(T, book, count, light, ghostCount) {
     });
     return paper;
   });
-  return { stationary, moving, pages, endpaper };
+  return { stationary, moving, bases };
 }

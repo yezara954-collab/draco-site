@@ -86,3 +86,21 @@
   color: #f2f2f0;
   font: .69rem/1.5 ui-monospace, monospace;
 }
+
+.picture-photo-hover { cursor: pointer; }
+.picture-lightbox {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / var(--picture-lightbox-dim, .8));
+  pointer-events: none;
+}
+.picture-lightbox[hidden] { display: none; }
+.picture-lightbox canvas {
+  width: min(84vw, 61.5vh, 540px);
+  height: auto;
+  display: block;
+  box-shadow: 0 16px 52px rgb(0 0 0 / .7);
+}

@@ -5,6 +5,7 @@ import { mountAlbum } from './picture-album.js';
 import { makeSky } from './picture-sky.js';
 import { makeImpactSound } from './picture-sound.js';
 import { mountPhotoUploads } from './picture-upload.js';
+import { mountPictureLightbox } from './picture-lightbox.js';
 import './picture.css';
 
 const { palette } = config;
@@ -62,7 +63,11 @@ export function mountPicture(host) {
   document.addEventListener('visibilitychange', sound.sync, { signal });
 
   let book, albumReady = false;
-  const uploads = mountPhotoUploads(scene, signal, motion, photo => book?.addPhoto(photo), () => book?.clearPhotos());
+  const lightbox = mountPictureLightbox(scene, signal, motion, () => book);
+  const uploads = mountPhotoUploads(scene, signal, motion, photo => book?.addPhoto(photo), () => {
+    lightbox.close();
+    book?.clearPhotos();
+  });
   let intro = -1;
   let introStarted = false;
   const drawing = makeSky(canvas, motion, sound.play, sound.chime);
@@ -125,7 +130,9 @@ export function mountPicture(host) {
             const frame = elapsed / debugFrames;
             debug.textContent = `FPS ${(1000 / frame).toFixed(1)}　纸鹤 ${book?.craneCount ?? 0}　粒子 ${book?.particleCount ?? 0}
 ` +
-              `帧间隔 ${frame.toFixed(1)} ms　场景 CPU ${(debugTotal / debugFrames).toFixed(1)} ms` +
+              `帧间隔 ${frame.toFixed(1)} ms　场景 CPU ${(debugTotal / debugFrames).toFixed(1)} ms
+` +
+              `相册纹理估算 ${((book?.textureBytes ?? 0) / 1048576).toFixed(1)} MiB` +
               (albumReady && !book ? '　WebGL 不可用' : '');
             debugSince = started;
             debugFrames = debugTotal = 0;

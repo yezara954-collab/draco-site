@@ -1,6 +1,6 @@
 import { album, picture, photoFlight as c, photoUpload as upload } from './config.js';
 import { arch } from './picture-album-paper.js';
-import { loadPhotoTextures, photoMaterial, uploadedPhotoTexture } from './picture-photo-art.js';
+import { photoMaterial } from './picture-photo-art.js';
 import { makePhotoDust } from './picture-photo-dust.js';
 import { craneRiseDistance, makeCraneFlight } from './picture-crane.js';
 
@@ -9,7 +9,7 @@ const mix = (a, b, t) => a + (b - a) * t;
 const smooth = t => t * t * (3 - 2 * t);
 const radians = degrees => degrees * Math.PI / 180;
 
-export function makePhotoFlight(T, scene, camera, book) {
+export function makePhotoFlight(T, scene, camera, book, gallery, stagePriority, liftPhoto) {
   const group = new T.Group();
   scene.add(group);
   const dust = makePhotoDust(T, group, camera);
@@ -48,13 +48,12 @@ export function makePhotoFlight(T, scene, camera, book) {
       width: 1, birth: -Infinity };
   });
 
-  let textures, disposed = false;
-  let width, height, limit = capacity, count = 0, clock = 0, lastDoodle = -1;
+  let width, height, limit = capacity, count = 0, clock = 0;
   let debrisCount;
   let hasFirstPhoto = false;
-  const userPhotos = new Map();
-  const deck = [], priorities = [];
-  let lastUser = null, priorityAt = 0;
+  const priorities = [];
+  const seen = new Set();
+  let lastEntry = null, lastPool, priorityAt = 0;
   const pending = Array.from({ length: capacity }, () => ({ remaining: 0, due: 0, deadline: 0 }));
   // 相纸有自己的随机序列，出片与喷尘不会重新排列翻页的随机节奏。
   const entropy = new Uint32Array(3);
@@ -69,71 +68,35 @@ export function makePhotoFlight(T, scene, camera, book) {
     debrisSeed = (Math.imul(debrisSeed, 1664525) + 1013904223) >>> 0;
     return debrisSeed / 4294967296;
   }
-  loadPhotoTextures(T).then(result => {
-    if (disposed) result.forEach(texture => texture.dispose());
-    else textures = result;
-  }).catch(error => { if (!disposed) console.warn('Picture 相纸纹理未加载', error); });
-
   function uploadRandom() {
     uploadSeed = (Math.imul(uploadSeed, 1664525) + 1013904223) >>> 0;
     return uploadSeed / 4294967296;
   }
 
-  function addPhoto({ id, source, priority }) {
-    if (userPhotos.has(id)) return;
-    const entry = { id, texture: uploadedPhotoTexture(T, source) };
-    userPhotos.set(id, entry);
-    if (deck.length) {
-      const spot = Math.floor(uploadRandom() * (deck.length + 1));
-      deck.splice(spot, 0, entry);
-    }
-    if (priority) priorities.push(entry);
-  }
-
-  function chooseUser(preferred) {
-    if (!preferred && (!userPhotos.size ||
-        (upload.MIX_DOODLE_RATIO > 0 && uploadRandom() < upload.MIX_DOODLE_RATIO))) return null;
-    if (!deck.length) {
-      for (const entry of userPhotos.values()) deck.push(entry);
-      for (let i = deck.length - 1; i > 0; i--) {
-        const j = Math.floor(uploadRandom() * (i + 1));
-        const entry = deck[i];
-        deck[i] = deck[j];
-        deck[j] = entry;
-      }
-    }
-    if (preferred) {
-      const index = deck.indexOf(preferred);
-      if (index >= 0) deck.splice(index, 1);
-      return preferred;
-    }
-    const index = deck.length > 1 && deck[0] === lastUser ? 1 : 0;
-    return deck.splice(index, 1)[0];
-  }
-
   function clearPhotos() {
     for (const slot of slots) {
-      if (!slot.userPhoto) continue;
-      slot.material.uniforms.doodle.value = textures?.[0] ?? null;
-      slot.userPhoto = null;
+      if (!slot.entry || slot.entry.isDefault) continue;
+      slot.entry = slot.mesh.visible ? gallery.pick() : null;
+      slot.material.uniforms.photoMap.value = slot.entry?.texture ?? null;
     }
-    for (const entry of userPhotos.values()) entry.texture.dispose();
-    userPhotos.clear();
-    deck.length = priorities.length = 0;
-    lastUser = null;
+    priorities.length = 0;
+    lastEntry = null;
+    seen.clear();
     priorityAt = 0;
   }
 
   function frameGlow(slot, anchor) {
     const { frame, framePositions } = slot;
-    const [u, v, span] = anchor.frame;
-    const depth = span * album.PAGE_WIDTH / album.PAGE_DEPTH;
+    const { frame: [u, v, span], sin, cos } = anchor.slot;
+    const aspect = album.PAGE_WIDTH / album.PAGE_DEPTH;
     const base = album.COVER_DEPTH + Math.max(1, anchor.count) * album.PAGE_THICKNESS;
     for (let edge = 0; edge < 4; edge++) {
       for (let i = 0; i < 8; i++) {
         const f = i / 8;
-        const x = u + span * (edge === 0 ? f : edge === 1 ? 1 : edge === 2 ? 1 - f : 0);
-        const z = v + depth * (edge === 0 ? 0 : edge === 1 ? f : edge === 2 ? 1 : 1 - f);
+        const h = span * ((edge === 0 ? f : edge === 1 ? 1 : edge === 2 ? 1 - f : 0) - .5);
+        const d = span * c.PHOTO_ASPECT * ((edge === 0 ? 0 : edge === 1 ? f : edge === 2 ? 1 : 1 - f) - .5);
+        const x = u + h * cos - d * sin;
+        const z = v + (h * sin + d * cos) * aspect;
         probe.set(anchor.side * (album.SPINE_GAP + x * album.PAGE_WIDTH), base + arch(x) + .008,
           (z - .5) * album.PAGE_DEPTH);
         book.localToWorld(probe);
@@ -151,16 +114,24 @@ export function makePhotoFlight(T, scene, camera, book) {
     const offset = Math.floor(nextRandom() * anchors.length);
     const depthScale = random(c.PHOTO_DEPTH_SCALE);
     let anchor, center, size;
+    // 可见槽位决定飞出哪张。默认的单一照片池用完一轮后再重复。
+    const singlePool = upload.MIX_DEFAULT_RATIO === 0;
+    if (lastPool !== gallery.poolKey) { seen.clear(); lastPool = gallery.poolKey; }
+    if (!preferred && singlePool && !gallery.unseen(seen, lastEntry)) seen.clear();
+    const avoidRepeat = !preferred && anchors.some(({ slot }) =>
+      slot.available && slot.entry !== lastEntry && (!singlePool || !seen.has(slot.entry)));
     // 优先试另一侧的相框。若都太近，保留请求至下次重试。
     for (let i = 0; i < anchors.length; i++) {
       const candidate = anchors[(offset + i) % anchors.length];
-      const [u, v, span] = candidate.frame;
-      center = u + span * (.5 + (nextRandom() - .5) * c.PHOTO_ANCHOR_JITTER);
-      size = span * album.PAGE_WIDTH * c.PHOTO_SIZE_SCALE * depthScale;
-      const z = (v - .5) * album.PAGE_DEPTH + span * album.PAGE_WIDTH *
-        (.5 + (nextRandom() - .5) * c.PHOTO_ANCHOR_JITTER);
+      const source = candidate.slot;
+      if (!source.available || (preferred && source.entry !== preferred) ||
+          (avoidRepeat && source.entry === lastEntry) || (!preferred && singlePool && seen.has(source.entry))) continue;
+      const [u, v, span] = source.frame;
+      center = u;
+      size = span * album.PAGE_WIDTH;
+      const z = (v - .5) * album.PAGE_DEPTH;
       const y = album.COVER_DEPTH + Math.max(1, candidate.count) * album.PAGE_THICKNESS;
-      origin.set(candidate.side * (album.SPINE_GAP + center * album.PAGE_WIDTH), y + arch(center) + .013, z);
+      origin.set(candidate.side * (album.SPINE_GAP + center * album.PAGE_WIDTH), y + arch(center) + .003, z);
       book.localToWorld(origin);
       let crowded = false;
       for (const other of slots) {
@@ -173,29 +144,29 @@ export function makePhotoFlight(T, scene, camera, book) {
       }
       if (!crowded) { anchor = candidate; break; }
     }
-    if (!anchor) return false;
+    if (!anchor) {
+      if (!preferred && singlePool) {
+        const next = gallery.unseen(seen, lastEntry);
+        if (next && !anchors.some(({ slot }) => slot.entry === next && slot.available)) stagePriority(anchors, next);
+      }
+      return false;
+    }
     // 优先给用户照片留好一只鹤和一条未占用的航线，再掀起相纸。
     const reservation = preferred ? cranes.reserve(origin) : null;
     if (preferred && !reservation) return false;
     slot.origin.copy(origin);
-    const slope = (album.OPEN_ARCH * Math.PI * Math.cos(Math.PI * center) + album.FREE_EDGE_LIFT) /
-      album.PAGE_WIDTH * anchor.side;
     slot.angle = radians(random(c.PHOTO_ROTATION));
-    slot.rest.copy(book.quaternion).multiply(twist.setFromAxisAngle(zAxis, Math.atan(slope))).multiply(flat);
-    slot.rest.multiply(twist.setFromAxisAngle(zAxis, slot.angle));
+    slot.rest.copy(book.quaternion).multiply(flat);
+    slot.rest.multiply(twist.setFromAxisAngle(zAxis, -anchor.side * radians(anchor.slot.frame[3])));
     const { mesh, material } = slot;
     material.depthWrite = true;
     const uniforms = material.uniforms;
-    uniforms.curvature.value.set(center, Math.PI * size / album.PAGE_WIDTH * anchor.side, album.OPEN_ARCH / size);
-    const userPhoto = chooseUser(preferred);
-    slot.userPhoto = lastUser = userPhoto;
-    if (userPhoto) uniforms.doodle.value = userPhoto.texture;
-    else {
-      let texture = Math.floor(nextRandom() * (textures.length - (lastDoodle >= 0 ? 1 : 0)));
-      if (lastDoodle >= 0 && texture >= lastDoodle) texture++;
-      lastDoodle = texture;
-      uniforms.doodle.value = textures[texture];
-    }
+    uniforms.curvature.value.set(center, album.OPEN_ARCH / size, album.FREE_EDGE_LIFT / size);
+    const scaleOnPage = size / album.PAGE_WIDTH;
+    uniforms.pageAxis.value.set(scaleOnPage * anchor.side * anchor.slot.cos, scaleOnPage * anchor.slot.sin);
+    slot.entry = lastEntry = anchor.slot.entry;
+    seen.add(slot.entry);
+    uniforms.photoMap.value = slot.entry.texture;
     uniforms.whiteMix.value = 0;
     const [far, near] = c.PHOTO_DEPTH_SCALE;
     uniforms.opacity.value = slot.opacity = mix(.82, 1, clamp((depthScale - far) / (near - far)));
@@ -223,6 +194,7 @@ export function makePhotoFlight(T, scene, camera, book) {
     mesh.scale.setScalar(size);
     mesh.visible = true;
     count++;
+    liftPhoto(anchor);
     frameGlow(slot, anchor);
     return true;
   }
@@ -286,9 +258,10 @@ export function makePhotoFlight(T, scene, camera, book) {
 
   function schedule(launches, anchors) {
     const firstTime = album.INTRO_WIND_DURATION + c.EMIT_AFTER_WIND;
-    if (!textures || clock < firstTime) return;
+    if (!anchors.length || clock < firstTime) return;
     if (priorities.length) {
       if (clock < priorityAt || count >= limit || !anchors.length) return;
+      stagePriority(anchors, priorities[0]);
       if (emit(anchors, priorities[0])) {
         hasFirstPhoto = true;
         priorities.shift();
@@ -321,12 +294,19 @@ export function makePhotoFlight(T, scene, camera, book) {
     }
   }
 
-  function update(dt, anchors, launches) {
+  function update(dt, anchors, launches, paused) {
     if (dt <= 0) return;
     clock += dt;
     // 先推进已经起飞的鹤，交接帧不额外推进一次。
     cranes.update(dt);
-    schedule(launches, anchors);
+    if (!paused) schedule(launches, anchors);
+    else {
+      if (priorityAt > 0) priorityAt += dt;
+      for (const request of pending) if (request.remaining) {
+        request.due += dt;
+        request.deadline += dt;
+      }
+    }
     up.set(0, 1, 0).applyQuaternion(camera.quaternion);
     pushes.count = 0;
     for (const slot of slots) {
@@ -348,6 +328,7 @@ export function makePhotoFlight(T, scene, camera, book) {
       mesh.quaternion.copy(slot.rest).slerp(heading, smooth(lift));
       material.uniforms.peel.value = Math.sin(Math.PI * lift) * .57;
       material.uniforms.arch.value = 1 - smooth(lift);
+      material.uniforms.opacity.value = mix(1, slot.opacity, smooth(lift));
 
       if (airAge >= c.MORPH_START_DELAY) morphPaper(slot, airAge, viewScale, liftRise);
       if (mesh.visible && c.PHOTO_DISTURBS_TASSELS && lift > .5) {
@@ -371,7 +352,8 @@ export function makePhotoFlight(T, scene, camera, book) {
   }
 
   return {
-    group, pushes, update, clear, addPhoto, clearPhotos,
+    group, pushes, update, clear, clearPhotos,
+    queuePhoto(entry) { priorities.push(entry); },
     get craneCount() { return cranes.count; },
     get particleCount() { return dust.count; },
     fit(w, h, mobile, ratio) {
@@ -391,11 +373,9 @@ export function makePhotoFlight(T, scene, camera, book) {
       cranes.fit(w, h, mobile, ratio);
     },
     destroy() {
-      disposed = true;
-      clearPhotos();
+      priorities.length = 0;
       cranes.destroy();
       dust.destroy();
-      textures?.forEach(texture => texture.dispose());
       for (const { material, frame } of slots) {
         material.dispose(); frame.material.dispose(); frame.geometry.dispose();
       }
