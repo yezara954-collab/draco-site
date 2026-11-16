@@ -1,5 +1,5 @@
 import { getSiteAudioContext } from './site-audio.js';
-import { picture as config, album as settings } from './config.js';
+import { picture as config, album as settings, photoFlight } from './config.js';
 import { makeAlbumAir } from './picture-album-air.js';
 import { mountAlbum } from './picture-album.js';
 import { makeSky } from './picture-sky.js';
@@ -30,6 +30,17 @@ export function mountPicture(host) {
       <p class="picture-status" role="status"></p>
     </div>`;
   host.append(scene);
+  const debug = new URLSearchParams(location.search).get('debug') === '1'
+    ? document.createElement('div') : null;
+  let debugSince = 0, debugFrames = 0, debugTotal = 0;
+  if (debug) {
+    debug.className = 'picture-debug';
+    debug.textContent = 'FPS —　纸鹤 0　粒子 0　帧耗时 —';
+    scene.append(debug);
+    document.addEventListener('visibilitychange', () => {
+      debugSince = debugFrames = debugTotal = 0;
+    }, { signal });
+  }
   const canvas = scene.querySelector('canvas');
   const upload = scene.querySelector('.picture-upload');
   const input = scene.querySelector('input');
@@ -121,6 +132,7 @@ export function mountPicture(host) {
   }, { signal });
   return {
     update(dt) {
+      const started = debug && !document.hidden ? performance.now() : 0;
       if (albumReady && !document.hidden && !motion.matches) {
         if (!introStarted) {
           introStarted = true;
@@ -134,6 +146,23 @@ export function mountPicture(host) {
       }
       drawing.update(dt, intro, book?.photoPushes);
       book?.update(dt, intro, drawing.sampleWind(settings.BOOK_CENTER_X, settings.WIND_SAMPLE_LAG), drawing.lights);
+      if (started) {
+        if (!debugSince) debugSince = started;
+        else {
+          debugFrames++;
+          debugTotal += performance.now() - started;
+          const elapsed = started - debugSince;
+          if (elapsed >= photoFlight.CRANE_DEBUG_INTERVAL * 1000) {
+            const frame = elapsed / debugFrames;
+            debug.textContent = `FPS ${(1000 / frame).toFixed(1)}　纸鹤 ${book?.craneCount ?? 0}　粒子 ${book?.particleCount ?? 0}
+` +
+              `帧间隔 ${frame.toFixed(1)} ms　场景 CPU ${(debugTotal / debugFrames).toFixed(1)} ms` +
+              (albumReady && !book ? '　WebGL 不可用' : '');
+            debugSince = started;
+            debugFrames = debugTotal = 0;
+          }
+        }
+      }
     },
     destroy() {
       lifetime.abort();

@@ -225,6 +225,8 @@ export function mountAlbum(T, canvas, air, motion, readPhotoWind) {
 
   return {
     fit, update, photoPushes: photo.pushes,
+    get craneCount() { return photo.craneCount; },
+    get particleCount() { return photo.particleCount; },
     settle() {
       photo.clear();
       build(mobile);

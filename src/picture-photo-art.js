@@ -95,6 +95,7 @@ export function photoMaterial(T) {
       grid: { value: new T.Vector2() }, opacity: { value: 1 },
       curvature: { value: new T.Vector3() }, arch: { value: 0 },
       paper: { value: new T.Color(c.PHOTO_PAPER_COLOR) },
+      whitePaper: { value: new T.Color(c.CRANE_PAPER_COLOR) }, whiteMix: { value: 0 },
     },
     vertexShader: `
       uniform float peel, arch;
@@ -114,9 +115,9 @@ export function photoMaterial(T) {
       }`,
     fragmentShader: `
       uniform sampler2D doodle;
-      uniform float detached, opacity;
+      uniform float detached, opacity, whiteMix;
       uniform vec2 grid;
-      uniform vec3 paper;
+      uniform vec3 paper, whitePaper;
       varying vec2 vUvPhoto;
       varying vec3 vPaperFace;
       void main() {
@@ -129,7 +130,7 @@ export function photoMaterial(T) {
         if (cell.x * grid.y + row < detached) discard;
         vec3 color = paper * (vPaperFace.z < -0.5 ? 0.89 : 0.78);
         if (vPaperFace.z > 0.5) color = texture2D(doodle, vUvPhoto).rgb;
-        gl_FragColor = vec4(color, opacity);
+        gl_FragColor = vec4(mix(color, whitePaper, whiteMix), opacity);
         #include <colorspace_fragment>
       }`,
   });

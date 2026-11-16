@@ -60,3 +60,16 @@
   height: 100%;
   pointer-events: none;
 }
+
+.picture-debug {
+  position: absolute;
+  z-index: 2;
+  left: max(.75rem, env(safe-area-inset-left));
+  bottom: max(.75rem, env(safe-area-inset-bottom));
+  padding: .35rem .5rem;
+  pointer-events: none;
+  white-space: pre-line;
+  background: rgb(0 0 0 / 75%);
+  color: #f2f2f0;
+  font: .69rem/1.5 ui-monospace, monospace;
+}

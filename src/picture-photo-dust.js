@@ -1,63 +1,48 @@
-import { photoFlight as c } from './config.js';
+import { photoFlight as c, picture } from './config.js';
 
 const clamp = t => Math.min(1, Math.max(0, t));
 const smooth = t => t * t * (3 - 2 * t);
+const TAU = Math.PI * 2;
 
-export function makePhotoDust(T, group) {
+export function makePhotoDust(T, group, camera) {
   const limit = Math.max(c.DUST_MAX.desktop, c.DUST_MAX.mobile);
+  const stride = 6, stateStride = 10;
   const geometry = new T.BufferGeometry();
-  const xyz = new Float32Array(limit * 3);
-  const origin = new Float32Array(limit * 3);
-  const drift = new Float32Array(limit * 3);
-  const data = new Float32Array(limit * 7);
-  const owners = new Array(limit).fill(null);
-  const trails = new Array(limit).fill(null);
-  const trailData = new Float64Array(limit * 4); // 航次、累计路程、初始体长、闪烁频率
-  const trailTurn = c.CRANE_GATHER_TURN_DEG * Math.PI / 180;
-  const size = new Float32Array(limit);
-  const fade = new Float32Array(limit);
-  const tint = new Float32Array(limit);
-  const kind = new Float32Array(limit);
-  const attributes = ['position', 'size', 'fade', 'tint', 'kind'].map((name, i) => {
-    const attr = new T.BufferAttribute([xyz, size, fade, tint, kind][i], i === 0 ? 3 : 1).setUsage(T.DynamicDrawUsage);
-    geometry.setAttribute(name, attr);
-    return attr;
-  });
-  const ranges = attributes.map(() => ({ start: 0, count: 0 }));
+  const buffer = new T.InterleavedBuffer(new Float32Array(limit * stride), stride).setUsage(T.DynamicDrawUsage);
+  geometry.setAttribute('position', new T.InterleavedBufferAttribute(buffer, 3, 0));
+  geometry.setAttribute('spark', new T.InterleavedBufferAttribute(buffer, 3, 3));
+  const vertices = buffer.array;
+  const range = { start: 0, count: 0 };
+  const origin = new Float32Array(limit * 3), velocity = new Float32Array(limit * 3);
+  // 星点共用同一块 GPU 顶点缓冲；CPU 侧按生存期交换回收槽位。
+  const state = new Float64Array(limit * stateStride);
+  const flyers = new Array(limit).fill(null);
   const material = new T.ShaderMaterial({
     transparent: true, depthWrite: false, depthTest: false,
-    // 屏幕式叠亮让重叠的星点趋近白色，防止密集区域无限加亮。
-    blending: T.CustomBlending, blendSrc: T.OneFactor, blendDst: T.OneMinusSrcColorFactor,
+    blending: T.CustomBlending, blendSrc: T.OneFactor, blendDst: T.OneFactor,
     blendSrcAlpha: T.OneFactor, blendDstAlpha: T.OneMinusSrcAlphaFactor,
     uniforms: {
-      pixelRatio: { value: 1 }, trailPass: { value: 0 },
-      paper: { value: new T.Color(c.PHOTO_PAPER_COLOR) }, white: { value: new T.Color(c.DUST_COLOR_A) },
-      gold: { value: new T.Color(c.DUST_COLOR_B) },
+      pixelRatio: { value: 1 },
+      white: { value: new T.Color(c.DUST_COLOR_A) }, gold: { value: new T.Color(c.DUST_COLOR_B) },
     },
     vertexShader: `
-      attribute float size, fade, tint, kind;
+      attribute vec3 spark;
       uniform float pixelRatio;
-      varying vec3 vDust;
+      varying vec2 vSpark;
       void main() {
-        vDust = vec3(fade, tint, kind);
-        gl_PointSize = max(1.0, size * pixelRatio);
+        vSpark = spark.yz;
+        gl_PointSize = max(1.0, spark.x * pixelRatio);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: `
-      uniform vec3 paper, white, gold;
-      uniform float trailPass;
-      varying vec3 vDust;
+      uniform vec3 white, gold;
+      varying vec2 vSpark;
       void main() {
-        if (step(4.0, vDust.z) != trailPass) discard;
-        float style = mod(vDust.z, 4.0);
         vec2 p = abs(gl_PointCoord * 2.0 - 1.0);
-        float d = length(p);
-        float glow = 1.0 - smoothstep(0.24, 1.0, d);
+        float glow = 1.0 - smoothstep(0.24, 1.0, length(p));
         float ray = max(1.0 - smoothstep(0.015, 0.24, p.x), 1.0 - smoothstep(0.015, 0.24, p.y));
-        float star = ray * glow;
-        float shape = mix(glow, max(glow * 0.32, star), step(2.0, style));
-        vec3 color = mix(paper, mix(white, gold, mod(style, 2.0)), vDust.y);
-        gl_FragColor = vec4(color, shape * vDust.x);
+        float shape = mix(glow, max(glow * 0.32, glow * ray), step(2.0, vSpark.y));
+        gl_FragColor = vec4(mix(white, gold, mod(vSpark.y, 2.0)), shape * vSpark.x);
         #include <colorspace_fragment>
         gl_FragColor.rgb *= gl_FragColor.a;
       }`,
@@ -65,131 +50,108 @@ export function makePhotoDust(T, group) {
   const points = new T.Points(geometry, material);
   points.frustumCulled = false;
   points.renderOrder = 7;
-  const trailMaterial = material.clone();
-  trailMaterial.uniforms.trailPass.value = 1;
-  trailMaterial.blendDst = T.OneFactor;
-  const trailPoints = new T.Points(geometry, trailMaterial);
-  trailPoints.frustumCulled = false;
-  trailPoints.renderOrder = points.renderOrder;
-  group.add(points, trailPoints);
+  group.add(points);
   geometry.setDrawRange(0, 0);
-  let count = 0, capacity = c.DUST_MAX.desktop;
+  let count = 0, height = 1, capacity = c.DUST_MAX.desktop;
+  const view = new T.Vector3(), right = new T.Vector3(), up = new T.Vector3(), drift = new T.Vector3();
 
-  // 相纸星点与尾迹共用容量，绘制时各自使用自己的混合模式。
-  function emit(position, offset, life, diameter, style, alpha, phase, owner = null, index = 0) {
-    if (count >= capacity) return false;
-    const i = count++, j = i * 7, k = i * 3;
-    origin[k] = position.x; origin[k + 1] = position.y; origin[k + 2] = position.z;
-    drift[k] = offset.x; drift[k + 1] = offset.y; drift[k + 2] = offset.z;
-    data[j] = 0; data[j + 1] = life; data[j + 2] = diameter; data[j + 3] = style;
-    data[j + 4] = alpha; data[j + 5] = phase; data[j + 6] = index;
-    owners[i] = owner;
-    if (owner) owner.emitted[index] = 1;
-    trails[i] = null;
-    return true;
+  function emit(position, motion, life, diameter, style, alpha, phase, frequency, gravity, flyer, distance) {
+    const i = count++, k = i * 3, j = i * stateStride;
+    position.toArray(origin, k);
+    motion.toArray(velocity, k);
+    state[j] = 0; state[j + 1] = life; state[j + 2] = diameter; state[j + 3] = style;
+    state[j + 4] = alpha; state[j + 5] = phase; state[j + 6] = frequency; state[j + 7] = gravity;
+    state[j + 8] = flyer?.flightId ?? 0;
+    state[j + 9] = distance;
+    flyers[i] = flyer;
   }
 
-  function emitTrail(position, offset, life, diameter, style, alpha, phase, frequency, flyer, length) {
-    if (count >= capacity * c.TRAIL_POOL_SHARE ||
-        !emit(position, offset, life, diameter, style + 4, alpha, phase)) return;
-    const i = count - 1, t = i * 4;
-    trails[i] = flyer;
-    trailData[t] = flyer.flightId;
-    trailData[t + 1] = flyer.distance;
-    trailData[t + 2] = length;
-    trailData[t + 3] = frequency;
+  function emitDebris(position, vx, vy, life, diameter, style, phase, frequency) {
+    if (count >= capacity) return;
+    const depth = -view.copy(position).applyMatrix4(camera.matrixWorldInverse).z;
+    const pixel = 2 * depth * Math.tan(camera.fov * Math.PI / 360) / height;
+    const py = (1 - view.copy(position).project(camera).y) * .5;
+    const dropRoom = (picture.ground.y - c.DEBRIS_GROUND_CLEARANCE - py) * height;
+    if (dropRoom <= 0) return;
+    const gravity = c.DEBRIS_GRAVITY;
+    // 低处或矮屏上缩短寿命，保证碎屑在地面之前已经消失。
+    const safeLife = (Math.sqrt(vy * vy + 2 * gravity * dropRoom) - vy) / gravity;
+    drift.copy(right).multiplyScalar(vx * pixel).addScaledVector(up, -vy * pixel);
+    emit(position, drift, Math.min(life, safeLife), diameter, style, c.DEBRIS_ALPHA_MAX, phase, frequency,
+      gravity * pixel, null, 0);
   }
+
+  function emitTrail(position, motion, life, diameter, style, alpha, phase, frequency, flyer, length, distance) {
+    if (count >= capacity * c.TRAIL_POOL_SHARE) return;
+    emit(position, motion, life, diameter, style, alpha, phase, frequency, 0, flyer, distance);
+    trailLength[count - 1] = length * c.TRAIL_MAX_LENGTH;
+  }
+
+  const trailLength = new Float32Array(limit);
 
   function remove(i) {
     const last = --count;
     if (i !== last) {
       origin.copyWithin(i * 3, last * 3, last * 3 + 3);
-      drift.copyWithin(i * 3, last * 3, last * 3 + 3);
-      data.copyWithin(i * 7, last * 7, last * 7 + 7);
-      owners[i] = owners[last];
-      trails[i] = trails[last];
-      trailData.copyWithin(i * 4, last * 4, last * 4 + 4);
+      velocity.copyWithin(i * 3, last * 3, last * 3 + 3);
+      state.copyWithin(i * stateStride, last * stateStride, (last + 1) * stateStride);
+      flyers[i] = flyers[last];
+      trailLength[i] = trailLength[last];
     }
-    owners[last] = trails[last] = null;
+    flyers[last] = null;
   }
 
   function update(dt) {
     const previous = geometry.drawRange.count;
     for (let i = 0; i < count;) {
-      const j = i * 7, k = i * 3;
-      const age = data[j] += dt;
-      const life = data[j + 1];
-      const owner = owners[i];
-      const normalized = clamp(age / life);
-      const phase = data[j + 5];
-      const style = data[j + 3];
-      const isTrail = style >= 4;
-      const target = data[j + 6];
-      const t = i * 4;
-      if (owner?.cancelled || (!owner && normalized >= 1) ||
-          (owner && owner.glow[target] >= 1)) { remove(i); continue; }
-      let opacity = 1;
-      if (isTrail) {
-        const flyer = trails[i];
-        const length = trailData[t + 2] * c.TRAIL_MAX_LENGTH;
-        const distance = flyer.flightId === trailData[t] ? flyer.distance - trailData[t + 1] : 0;
-        const near = 1 - smooth(clamp((distance / length - .65) / .35));
-        const blink = .60 + .40 * Math.sin((age * trailData[t + 3] + phase) * Math.PI * 2);
-        const flash = style >= 6 ? 1 - smooth(clamp(age / c.TRAIL_CROSS_FLASH)) : 1;
-        opacity = near * blink * flash * Math.min(1, age * 95) * (1 - smooth(normalized));
-        if (!near || (style >= 6 && !flash)) { remove(i); continue; }
-        for (let axis = 0; axis < 3; axis++) xyz[k + axis] = origin[k + axis] + drift[k + axis] * age;
-      } else {
-        const float = 1 - (1 - clamp(age / .78)) ** 2;
-        const targetIndex = target * 3;
-        const approach = owner ? owner.approach[target] : 0;
-        for (let axis = 0; axis < 3; axis++) xyz[k + axis] = origin[k + axis] + drift[k + axis] * float;
-        if (owner && approach > 0) {
-          const dx = xyz[k] - owner.targets[targetIndex];
-          const dy = xyz[k + 1] - owner.targets[targetIndex + 1];
-          const dz = xyz[k + 2] - owner.targets[targetIndex + 2];
-          const u = dx * owner.right.x + dy * owner.right.y + dz * owner.right.z;
-          const v = dx * owner.up.x + dy * owner.up.y + dz * owner.up.z;
-          const angle = approach * trailTurn * (phase > .5 ? 1 : -1);
-          const cos = (Math.cos(angle) - 1) * c.CRANE_GATHER_SWIRL;
-          const sin = Math.sin(angle) * c.CRANE_GATHER_SWIRL;
-          const du = u * cos - v * sin, dv = u * sin + v * cos;
-          xyz[k] = owner.targets[targetIndex] + (dx + owner.right.x * du + owner.up.x * dv) * (1 - approach);
-          xyz[k + 1] = owner.targets[targetIndex + 1] + (dy + owner.right.y * du + owner.up.y * dv) * (1 - approach);
-          xyz[k + 2] = owner.targets[targetIndex + 2] + (dz + owner.right.z * du + owner.up.z * dv) * (1 - approach);
-        }
-        const shimmer = .88 + .12 * Math.sin(age * 4.4 + phase * Math.PI * 2);
-        opacity = shimmer * (owner ? 1 - owner.glow[target] : (1 - normalized) ** 1.6);
+      const j = i * stateStride, k = i * 3, out = i * stride;
+      const age = state[j] += dt;
+      const life = state[j + 1], style = state[j + 3], flyer = flyers[i];
+      if (age >= life || (flyer && style >= 2 && age >= c.TRAIL_CROSS_FLASH)) { remove(i); continue; }
+      const t = age / life;
+      const shimmer = Math.sin((age * state[j + 6] + state[j + 5]) * TAU);
+      let opacity = (1 - t) ** c.DEBRIS_FADE_POWER * (.86 + .14 * shimmer);
+      if (flyer) {
+        const remaining = flyer.flightId === state[j + 8]
+          ? clamp((flyer.distance - state[j + 9]) / trailLength[i]) : 0;
+        if (remaining >= 1) { remove(i); continue; }
+        const near = 1 - smooth(clamp((remaining - .65) / .35));
+        const flash = style >= 2 ? 1 - smooth(clamp(age / c.TRAIL_CROSS_FLASH)) : 1;
+        opacity = near * (.60 + .40 * shimmer) * flash * Math.min(1, age * 95) * (1 - smooth(t));
       }
-      size[i] = data[j + 2] * (1 - (owner ? owner.glow[target] * .28 : normalized * .54));
-      fade[i] = data[j + 4] * opacity;
-      tint[i] = isTrail ? 1 : clamp(age / c.DUST_TINT_TIME);
-      kind[i] = style;
+      const fall = -.5 * state[j + 7] * age * age;
+      vertices[out] = origin[k] + velocity[k] * age + up.x * fall;
+      vertices[out + 1] = origin[k + 1] + velocity[k + 1] * age + up.y * fall;
+      vertices[out + 2] = origin[k + 2] + velocity[k + 2] * age + up.z * fall;
+      vertices[out + 3] = state[j + 2] * (1 - .54 * t);
+      vertices[out + 4] = state[j + 4] * opacity;
+      vertices[out + 5] = style;
       i++;
     }
     if (!count && !previous) return;
     geometry.setDrawRange(0, count);
-    if (count) for (let i = 0; i < attributes.length; i++) {
-      const attr = attributes[i];
-      const range = ranges[i];
-      attr.clearUpdateRanges();
-      range.count = count * attr.itemSize;
-      attr.updateRanges.push(range);
-      attr.needsUpdate = true;
+    if (count) {
+      buffer.clearUpdateRanges();
+      range.count = count * stride;
+      buffer.updateRanges.push(range);
+      buffer.needsUpdate = true;
     }
   }
 
   return {
-    emit, emitTrail, update,
-    fit(mobile, pixelRatio) {
+    emitDebris, emitTrail, update,
+    get count() { return count; },
+    fit(mobile, pixelRatio, screenHeight) {
+      height = screenHeight;
+      right.set(1, 0, 0).applyQuaternion(camera.quaternion);
+      up.set(0, 1, 0).applyQuaternion(camera.quaternion);
       capacity = c.DUST_MAX[mobile ? 'mobile' : 'desktop'];
-      owners.fill(null, Math.min(count, capacity), count);
-      trails.fill(null, Math.min(count, capacity), count);
+      flyers.fill(null, Math.min(count, capacity), count);
       count = Math.min(count, capacity);
       geometry.setDrawRange(0, count);
-      material.uniforms.pixelRatio.value = trailMaterial.uniforms.pixelRatio.value = pixelRatio;
+      material.uniforms.pixelRatio.value = pixelRatio;
     },
-    clear() { owners.fill(null, 0, count); trails.fill(null, 0, count); count = 0; geometry.setDrawRange(0, 0); },
-    destroy() { group.remove(points, trailPoints); geometry.dispose(); material.dispose(); trailMaterial.dispose(); },
+    clear() { flyers.fill(null, 0, count); count = 0; geometry.setDrawRange(0, 0); },
+    destroy() { group.remove(points); geometry.dispose(); material.dispose(); },
   };
 }
