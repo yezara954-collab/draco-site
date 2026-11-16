@@ -24,6 +24,7 @@ export function makePhotoFlight(T, scene, camera, book) {
   const origin = new T.Vector3();
   const flat = new T.Quaternion().setFromAxisAngle(new T.Vector3(1, 0, 0), -Math.PI / 2);
   const zAxis = new T.Vector3(0, 0, 1);
+  const paperAxis = new T.Vector3();
   const spinAxis = new T.Vector3(.35, .82, .45).normalize();
   const twist = new T.Quaternion();
   const heading = new T.Quaternion();
@@ -286,11 +287,23 @@ export function makePhotoFlight(T, scene, camera, book) {
       if (!slot.released && originY - rise <= Math.max(slot.targetY, clearance) + .0001) {
         slot.released = clock;
         slot.crane = cranes.begin(mesh.position, slot.width, slot.duration, slot.cols * slot.rows);
+        slot.craneOrder = slot.crane?.formOrder;
+        slot.paperTurn = 0;
       }
       if (!slot.released) continue;
       const progress = clamp((clock - slot.released) / slot.duration);
+      // 相纸仍照原顺序脱格，只让留下的纸片朝鹤收小并变淡。
+      if (slot.crane && (slot.crane.cancelled || slot.crane.formOrder !== slot.craneOrder)) slot.crane = null;
+      const settle = smooth(progress);
+      const aim = (slot.crane?.direction ?? roll) - roll;
+      const delta = Math.atan2(Math.sin(aim), Math.cos(aim));
+      const turnLimit = radians(c.CRANE_PAPER_TURN_DEG);
+      const turn = settle * Math.max(-turnLimit, Math.min(turnLimit, delta));
+      slot.paperTurn = mix(slot.paperTurn, turn, 1 - Math.exp(-dt / c.CRANE_POSE_RESPONSE));
+      mesh.quaternion.premultiply(twist.setFromAxisAngle(paperAxis.copy(zAxis).applyQuaternion(camera.quaternion), slot.paperTurn));
+      mesh.scale.setScalar(slot.width * mix(1, c.CRANE_PAPER_END_SCALE, settle));
       detachCells(slot, Math.floor(progress * slot.cols * slot.rows + .00001), viewScale);
-      material.uniforms.opacity.value = slot.opacity * (1 - .58 * progress);
+      material.uniforms.opacity.value = slot.opacity * (1 - settle);
       if (progress >= 1) {
         mesh.visible = false;
         count--;
