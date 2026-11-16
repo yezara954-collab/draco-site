@@ -2,6 +2,7 @@ import { album, picture, photoFlight as c } from './config.js';
 import { arch } from './picture-album-paper.js';
 import { loadPhotoTextures, photoMaterial } from './picture-photo-art.js';
 import { makePhotoDust } from './picture-photo-dust.js';
+import { makeCraneFlight } from './picture-crane.js';
 
 const clamp = t => Math.min(1, Math.max(0, t));
 const mix = (a, b, t) => a + (b - a) * t;
@@ -12,12 +13,14 @@ export function makePhotoFlight(T, scene, camera, book) {
   const group = new T.Group();
   scene.add(group);
   const dust = makePhotoDust(T, group);
+  const cranes = makeCraneFlight(T, group, camera, book, dust);
   const capacity = Math.max(c.PHOTO_MAX_ONSCREEN.desktop, c.PHOTO_MAX_ONSCREEN.mobile);
   const geometry = new T.BoxGeometry(1, c.PHOTO_ASPECT, c.PHOTO_THICKNESS, 8, 10, 1);
   const right = new T.Vector3();
   const up = new T.Vector3();
   const probe = new T.Vector3();
   const particle = new T.Vector3();
+  const driftOffset = new T.Vector3();
   const origin = new T.Vector3();
   const flat = new T.Quaternion().setFromAxisAngle(new T.Vector3(1, 0, 0), -Math.PI / 2);
   const zAxis = new T.Vector3(0, 0, 1);
@@ -166,7 +169,7 @@ export function makePhotoFlight(T, scene, camera, book) {
     return true;
   }
 
-  function detachCells(slot, total) {
+  function detachCells(slot, total, viewScale) {
     const { mesh, cols: columns, rows: lines } = slot;
     mesh.updateMatrixWorld(true);
     while (slot.cells < total) {
@@ -176,12 +179,12 @@ export function makePhotoFlight(T, scene, camera, book) {
       const row = column % 2 ? lines - 1 - next : next;
       const x = (column + .5) / columns - .5;
       const y = ((row + .5) / lines - .5) * c.PHOTO_ASPECT;
-      particle.set(x, y, c.PHOTO_THICKNESS * .5).applyMatrix4(mesh.matrixWorld).project(camera);
+      particle.set(x, y, c.PHOTO_THICKNESS * .5).applyMatrix4(mesh.matrixWorld);
       const style = (nextRandom() < c.DUST_GLINT_CHANCE ? 2 : 0) + (nextRandom() < c.DUST_GOLD_RATIO ? 1 : 0);
-      dust.emit(clamp((particle.x + 1) * .5), clamp((1 - particle.y) * .5),
-        c.DUST_WIND_DRIFT * mix(.70, 1.30, nextRandom()), random(c.DUST_FLOAT_TIME),
-        mix(c.DUST_FALL_TIME_MIN, c.DUST_FALL_TIME_MAX, nextRandom()), dust.groundAt(nextRandom()),
-        mix(c.DUST_SIZE_MIN, c.DUST_SIZE_MAX, nextRandom()), style, nextRandom() * Math.PI * 2);
+      driftOffset.copy(right).multiplyScalar(viewScale * random(c.DUST_DRIFT_RIGHT))
+        .addScaledVector(up, viewScale * random(c.DUST_DRIFT_UP));
+      dust.emit(particle, driftOffset, slot.duration, mix(c.DUST_SIZE_MIN, c.DUST_SIZE_MAX, nextRandom()), style,
+        c.DUST_ALPHA_MAX, nextRandom(), slot.crane, index);
     }
     slot.material.uniforms.detached.value = slot.cells;
   }
@@ -280,16 +283,20 @@ export function makePhotoFlight(T, scene, camera, book) {
         pushes.xy[i + 1] = (1 - probe.y) * height * .5;
         pushes.count++;
       }
-      if (!slot.released && originY - rise <= Math.max(slot.targetY, clearance) + .0001) slot.released = clock;
+      if (!slot.released && originY - rise <= Math.max(slot.targetY, clearance) + .0001) {
+        slot.released = clock;
+        slot.crane = cranes.begin(mesh.position, slot.width, slot.duration, slot.cols * slot.rows);
+      }
       if (!slot.released) continue;
       const progress = clamp((clock - slot.released) / slot.duration);
-      detachCells(slot, Math.floor(progress * slot.cols * slot.rows + .00001));
+      detachCells(slot, Math.floor(progress * slot.cols * slot.rows + .00001), viewScale);
       material.uniforms.opacity.value = slot.opacity * (1 - .58 * progress);
       if (progress >= 1) {
         mesh.visible = false;
         count--;
       }
     }
+    cranes.update(dt);
     dust.update(dt);
   }
 
@@ -299,6 +306,7 @@ export function makePhotoFlight(T, scene, camera, book) {
     hasFirstPhoto = false;
     for (const request of pending) request.remaining = 0;
     dust.clear();
+    cranes.clear();
   }
 
   return {
@@ -316,9 +324,11 @@ export function makePhotoFlight(T, scene, camera, book) {
       }
       pushes.count = 0;
       dust.fit(mobile, ratio);
+      cranes.fit(w, h, mobile, ratio);
     },
     destroy() {
       disposed = true;
+      cranes.destroy();
       dust.destroy();
       textures?.forEach(texture => texture.dispose());
       for (const { material, frame } of slots) {
