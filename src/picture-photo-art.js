@@ -91,8 +91,8 @@ export function photoMaterial(T) {
   return new T.ShaderMaterial({
     transparent: true,
     uniforms: {
-      doodle: { value: null }, peel: { value: 0 }, detached: { value: 0 },
-      grid: { value: new T.Vector2() }, opacity: { value: 1 },
+      doodle: { value: null }, peel: { value: 0 },
+      opacity: { value: 1 },
       curvature: { value: new T.Vector3() }, arch: { value: 0 },
       paper: { value: new T.Color(c.PHOTO_PAPER_COLOR) },
       whitePaper: { value: new T.Color(c.CRANE_PAPER_COLOR) }, whiteMix: { value: 0 },
@@ -115,19 +115,11 @@ export function photoMaterial(T) {
       }`,
     fragmentShader: `
       uniform sampler2D doodle;
-      uniform float detached, opacity, whiteMix;
-      uniform vec2 grid;
+      uniform float opacity, whiteMix;
       uniform vec3 paper, whitePaper;
       varying vec2 vUvPhoto;
       varying vec3 vPaperFace;
       void main() {
-        vec2 uv = vUvPhoto;
-        if (vPaperFace.z < -0.5) uv.x = 1.0 - uv.x;
-        if (abs(vPaperFace.x) > 0.5) uv.x = step(0.0, vPaperFace.x);
-        if (abs(vPaperFace.y) > 0.5) uv.y = step(0.0, vPaperFace.y);
-        vec2 cell = floor(clamp(uv, 0.0, 0.99999) * grid);
-        float row = mod(cell.x, 2.0) < 1.0 ? cell.y : grid.y - 1.0 - cell.y;
-        if (cell.x * grid.y + row < detached) discard;
         vec3 color = paper * (vPaperFace.z < -0.5 ? 0.89 : 0.78);
         if (vPaperFace.z > 0.5) color = texture2D(doodle, vUvPhoto).rgb;
         gl_FragColor = vec4(mix(color, whitePaper, whiteMix), opacity);

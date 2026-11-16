@@ -12,7 +12,7 @@ function pageProgress(t, hero = false) {
   return hero ? phase * phase * (3 - 2 * phase) : phase * (2 - phase);
 }
 
-export function mountAlbum(T, canvas, air, motion, readPhotoWind) {
+export function mountAlbum(T, canvas, air, motion) {
   const renderer = new T.WebGLRenderer({ canvas, alpha: true, antialias: true });
   renderer.setClearColor(0, 0);
   renderer.outputColorSpace = T.SRGBColorSpace;
@@ -219,7 +219,7 @@ export function mountAlbum(T, canvas, air, motion, readPhotoWind) {
       });
     }
     pageShadow.sample(lights);
-    photo.update(step, photoAnchors, launches, readPhotoWind);
+    photo.update(step, photoAnchors, launches);
     renderer.render(scene, camera);
   }
 

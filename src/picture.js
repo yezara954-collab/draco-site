@@ -82,7 +82,7 @@ export function mountPicture(host) {
   const moduleName = settings.THREE_MODULE;
   import(/* @vite-ignore */ moduleName).then(THREE => {
     if (signal.aborted) return;
-    book = mountAlbum(THREE, scene.querySelector('.picture-album'), air, motion, drawing.samplePhotoWind);
+    book = mountAlbum(THREE, scene.querySelector('.picture-album'), air, motion);
     book.fit();
     if (motion.matches) {
       intro = settings.INTRO_WIND_DURATION;

@@ -2,7 +2,7 @@ import { album, picture, photoFlight as c } from './config.js';
 import { arch } from './picture-album-paper.js';
 import { loadPhotoTextures, photoMaterial } from './picture-photo-art.js';
 import { makePhotoDust } from './picture-photo-dust.js';
-import { makeCraneFlight } from './picture-crane.js';
+import { craneRiseDistance, makeCraneFlight } from './picture-crane.js';
 
 const clamp = t => Math.min(1, Math.max(0, t));
 const mix = (a, b, t) => a + (b - a) * t;
@@ -16,16 +16,15 @@ export function makePhotoFlight(T, scene, camera, book) {
   const cranes = makeCraneFlight(T, group, camera, book, dust);
   const capacity = Math.max(c.PHOTO_MAX_ONSCREEN.desktop, c.PHOTO_MAX_ONSCREEN.mobile);
   const geometry = new T.BoxGeometry(1, c.PHOTO_ASPECT, c.PHOTO_THICKNESS, 8, 10, 1);
-  const right = new T.Vector3();
   const up = new T.Vector3();
   const probe = new T.Vector3();
   const particle = new T.Vector3();
-  const previous = new T.Vector3();
+  const morphOrigin = new T.Vector3();
   const origin = new T.Vector3();
   const flat = new T.Quaternion().setFromAxisAngle(new T.Vector3(1, 0, 0), -Math.PI / 2);
   const zAxis = new T.Vector3(0, 0, 1);
   const foldAxis = new T.Vector3(0, 1, 0);
-  const spinAxis = new T.Vector3(.35, .82, .45).normalize();
+  const foldPose = new T.Quaternion();
   const twist = new T.Quaternion();
   const heading = new T.Quaternion();
   const pushes = { count: 0, xy: new Float32Array(capacity * 2) };
@@ -46,12 +45,12 @@ export function makePhotoFlight(T, scene, camera, book) {
     frame.frustumCulled = false;
     group.add(frame);
     return { mesh, material, frame, framePositions, origin: new T.Vector3(), rest: new T.Quaternion(),
-      stop: new T.Vector3(), brake: new T.Vector3(), releasePose: new T.Quaternion(), width: 1, birth: -Infinity };
+      width: 1, birth: -Infinity };
   });
 
   let textures, disposed = false;
   let width, height, limit = capacity, count = 0, clock = 0, lastDoodle = -1;
-  let cols, rows, debrisCount;
+  let debrisCount;
   let hasFirstPhoto = false;
   const pending = Array.from({ length: capacity }, () => ({ remaining: 0, due: 0, deadline: 0 }));
   // 相纸有自己的随机序列，出片与喷尘不会重新排列翻页的随机节奏。
@@ -90,22 +89,6 @@ export function makePhotoFlight(T, scene, camera, book) {
     }
     framePositions.needsUpdate = true;
     frame.visible = true;
-  }
-
-  function pickLane() {
-    let lane = 0, best = -1;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const candidate = nextRandom() * 2 - 1;
-      let separation = 2;
-      for (const other of slots) {
-        if (other.mesh.visible && clock - other.birth < .84) {
-          separation = Math.min(separation, Math.abs(candidate - other.lane));
-        }
-      }
-      if (separation > best) { lane = candidate; best = separation; }
-      if (best > .45) break;
-    }
-    return lane;
   }
 
   function emit(anchors) {
@@ -152,22 +135,25 @@ export function makePhotoFlight(T, scene, camera, book) {
     if (lastDoodle >= 0 && texture >= lastDoodle) texture++;
     lastDoodle = texture;
     uniforms.doodle.value = textures[texture];
-    uniforms.detached.value = 0;
     uniforms.whiteMix.value = 0;
-    uniforms.grid.value.set(cols, rows);
     const [far, near] = c.PHOTO_DEPTH_SCALE;
     uniforms.opacity.value = slot.opacity = mix(.82, 1, clamp((depthScale - far) / (near - far)));
     slot.width = size;
     slot.birth = clock;
-    slot.rise = c.PHOTO_RISE_SPEED * (1 + (nextRandom() * 2 - 1) * c.PHOTO_SPEED_VARIATION);
-    slot.lane = pickLane();
-    slot.spin = radians(c.PHOTO_SPIN_SPEED) * (nextRandom() * 2 - 1);
-    slot.phase = nextRandom() * 6.283;
-    slot.targetY = picture.ground.y - random([c.PHOTO_DISSOLVE_HEIGHT_MIN, c.PHOTO_DISSOLVE_HEIGHT_MAX]);
-    slot.cols = cols;
-    slot.rows = rows;
+    slot.liftTime = random(c.LIFT_CORNER_TIME);
+    slot.morphTime = random(c.MORPH_DURATION);
+    // 按相框的屏幕起点反推巡航速度，使高低不同的起点尽量在目标拍长内飞完。
+    const flightTime = random(c.CRANE_FLIGHT_TIME);
+    const startY = (1 - probe.copy(slot.origin).project(camera).y) * .5;
+    const distance = startY - (1 - c.CRANE_FADE_END);
+    const ramp = c.CRANE_ACCEL_TIME * .5;
+    const acceleratedDistance = c.CRANE_RISE_SPEED_START * (slot.liftTime * .5 + ramp);
+    const cruise = (distance - acceleratedDistance) / (flightTime - slot.liftTime - ramp);
+    const [slow, fast] = c.CRANE_RISE_SPEED_END;
+    slot.cruise = Math.max(slow * (1 - c.CRANE_RISE_SPEED_VARIATION),
+      Math.min(fast * (1 + c.CRANE_RISE_SPEED_VARIATION), cruise));
     slot.debrisCount = debrisCount;
-    slot.dy = slot.wind = slot.released = slot.cells = 0;
+    slot.shed = 0;
     slot.crane = null;
     slot.folding = false;
     mesh.position.copy(slot.origin);
@@ -179,54 +165,53 @@ export function makePhotoFlight(T, scene, camera, book) {
     return true;
   }
 
-  function detachCells(slot, total) {
-    const { mesh, cols: columns, rows: lines } = slot;
+  function shedEdges(slot, progress) {
+    const total = Math.floor(progress * slot.debrisCount + .00001);
+    if (total === slot.shed) return;
+    const { mesh } = slot;
     mesh.updateMatrixWorld(true);
-    while (slot.cells < total) {
-      const index = slot.cells++;
-      const column = Math.floor(index / lines);
-      const next = index % lines;
-      const row = column % 2 ? lines - 1 - next : next;
-      const x = (column + .5) / columns - .5;
-      const y = ((row + .5) / lines - .5) * c.PHOTO_ASPECT;
-      particle.set(x, y, c.PHOTO_THICKNESS * .5).applyMatrix4(mesh.matrixWorld);
-      if (index >= slot.debrisCount) continue;
+    while (slot.shed < total) {
+      const perimeter = 4 * (slot.shed++ + .5) / slot.debrisCount;
+      const edge = Math.floor(perimeter), t = perimeter - edge - .5;
+      const x = edge === 0 ? t : edge === 1 ? .5 : edge === 2 ? -t : -.5;
+      const y = edge === 0 ? .5 : edge === 1 ? -t : edge === 2 ? -.5 : t;
+      particle.set(x, y * c.PHOTO_ASPECT, c.PHOTO_THICKNESS * .5).applyMatrix4(mesh.matrixWorld);
       dust.emitDebris(particle, (2 * debrisRandom() - 1) * c.DEBRIS_INITIAL_SPEED,
         debrisRandom() * c.DEBRIS_INITIAL_SPEED, mix(c.DEBRIS_LIFE_MIN, c.DEBRIS_LIFE_MAX, debrisRandom()),
         mix(c.DEBRIS_SIZE_MIN, c.DEBRIS_SIZE_MAX, debrisRandom()),
         debrisRandom() < c.DUST_GOLD_RATIO ? 1 : 0, debrisRandom(),
         mix(...c.DEBRIS_TWINKLE_HZ, debrisRandom()));
     }
-    slot.material.uniforms.detached.value = slot.cells;
   }
 
-  function foldPaper(slot) {
-    const elapsed = clock - slot.released;
+  function morphPaper(slot, airAge, viewScale, liftRise) {
     const { mesh, material } = slot;
-    const hover = clamp(elapsed / c.CRANE_HOVER_TIME);
-    // 先沿原来一帧的速度收速，位置和姿态在开始折叠时都已连续停稳。
-    mesh.position.copy(slot.stop).addScaledVector(slot.brake, 1 - (1 - hover) ** 3);
-    mesh.quaternion.copy(slot.releasePose).slerp(camera.quaternion, smooth(hover));
-    if (hover < 1) return;
     if (!slot.folding) {
       slot.folding = true;
       material.depthWrite = false;
-      slot.crane = cranes.begin(mesh.position, slot.width);
+      // 以精确的变形起点取样，避免掉帧后把纸鹤生成在另一处。
+      const rise = liftRise + craneRiseDistance(c.MORPH_START_DELAY, slot.cruise);
+      morphOrigin.copy(slot.origin).addScaledVector(up, rise * viewScale);
+      slot.crane = cranes.begin(morphOrigin, slot.width, heading, c.MORPH_START_DELAY, slot.cruise);
       slot.craneId = slot.crane?.flightId;
     }
     if (slot.crane && (slot.crane.flightId !== slot.craneId || slot.crane.state !== 'forming')) slot.crane = null;
-    const progress = clamp((elapsed - c.CRANE_HOVER_TIME) / (c.CRANE_FORM_TIME - c.CRANE_HOVER_TIME));
+    const progress = clamp((airAge - c.MORPH_START_DELAY) / slot.morphTime);
     const fold = smooth(progress);
     const [whiteFrom, whiteTo] = c.CRANE_WHITE_RANGE;
     const [fadeFrom, fadeTo] = c.CRANE_CROSSFADE_RANGE;
     const reveal = smooth(clamp((progress - fadeFrom) / (fadeTo - fadeFrom)));
+    if (slot.crane) {
+      cranes.fold(slot.crane, airAge, progress, reveal);
+      mesh.position.copy(slot.crane.root.position);
+    }
     const side = slot.crane?.side ?? 1;
-    mesh.quaternion.multiply(twist.setFromAxisAngle(foldAxis, side * radians(c.CRANE_PAPER_TURN_DEG) * fold));
+    foldPose.copy(heading).multiply(twist.setFromAxisAngle(foldAxis, side * radians(c.CRANE_PAPER_TURN_DEG)));
+    mesh.quaternion.copy(heading).slerp(foldPose, fold);
     mesh.scale.x = slot.width * mix(1, c.CRANE_PAPER_END_SCALE, fold);
     material.uniforms.whiteMix.value = smooth(clamp((progress - whiteFrom) / (whiteTo - whiteFrom)));
     material.uniforms.opacity.value = slot.opacity * (1 - reveal);
-    detachCells(slot, Math.floor(progress * slot.cols * slot.rows + .00001));
-    if (slot.crane) cranes.fold(slot.crane, progress, reveal);
+    shedEdges(slot, progress);
     if (progress >= 1) {
       if (slot.crane) cranes.launch(slot.crane);
       slot.crane = null;
@@ -237,21 +222,19 @@ export function makePhotoFlight(T, scene, camera, book) {
 
   function schedule(launches, anchors) {
     const firstTime = album.INTRO_WIND_DURATION + c.EMIT_AFTER_WIND;
-    // 用接近开场结尾的起翻预约第一张，跨过翻页换向时也能准时揭开。
-    if (launches && !hasFirstPhoto && clock >= album.INTRO_WIND_DURATION - .5 &&
-        !pending.some(request => request.remaining)) {
-      pending[0].remaining = 1;
-      pending[0].due = Math.max(clock, firstTime);
-      pending[0].deadline = pending[0].due + c.EMIT_MAX_DELAY;
-    }
     if (!textures || clock < firstTime) return;
-    const elapsed = clamp((clock - firstTime) / Math.max(.01, c.EMIT_RAMP_SECONDS - firstTime));
+    // 第一张直接由开场计时触发；之后沿用翻页出片。
+    if (!hasFirstPhoto) {
+      if (anchors.length) hasFirstPhoto = emit(anchors);
+      return;
+    }
+    const elapsed = clamp((clock - firstTime) / c.EMIT_RAMP_SECONDS);
     const probability = mix(c.EMIT_PROB_START, c.EMIT_PROB_END, elapsed);
     for (let i = 0; i < launches && count < limit; i++) {
-      if (!hasFirstPhoto || nextRandom() >= probability) continue;
+      if (nextRandom() >= probability) continue;
       const request = pending.find(item => !item.remaining);
       if (!request) break;
-      request.remaining = hasFirstPhoto && nextRandom() < c.EMIT_DOUBLE_PROB ? 2 : 1;
+      request.remaining = nextRandom() < c.EMIT_DOUBLE_PROB ? 2 : 1;
       request.due = clock;
       request.deadline = clock + c.EMIT_MAX_DELAY;
     }
@@ -259,86 +242,49 @@ export function makePhotoFlight(T, scene, camera, book) {
       if (!request.remaining || clock < request.due) continue;
       if (count >= limit || clock > request.deadline) { request.remaining = 0; continue; }
       if (!anchors.length || !emit(anchors)) { request.due = clock + c.EMIT_RETRY_DELAY; continue; }
-      hasFirstPhoto = true;
       request.remaining--;
       request.due = clock + c.EMIT_DOUBLE_DELAY;
       request.deadline = request.due + c.EMIT_MAX_DELAY;
     }
   }
 
-  function update(dt, anchors, launches, readWind) {
+  function update(dt, anchors, launches) {
+    if (dt <= 0) return;
     clock += dt;
+    // 先推进已经起飞的鹤，交接帧不额外推进一次。
+    cranes.update(dt);
     schedule(launches, anchors);
-    right.set(1, 0, 0).applyQuaternion(camera.quaternion);
     up.set(0, 1, 0).applyQuaternion(camera.quaternion);
     pushes.count = 0;
     for (const slot of slots) {
       const { mesh, frame, material } = slot;
       if (!mesh.visible) continue;
-      if (slot.released) { foldPaper(slot); continue; }
-      previous.copy(mesh.position);
       const age = clock - slot.birth;
-      const lift = clamp(age / c.PHOTO_LIFT_DURATION);
-      const open = smooth(clamp((lift - .20) / .80));
-      const airtime = Math.max(0, age - c.PHOTO_LIFT_DURATION);
+      const lift = clamp(age / slot.liftTime);
+      const airAge = Math.max(0, age - slot.liftTime);
       const opacity = 1 - clamp(age / c.PHOTO_FRAME_FLASH);
       frame.material.opacity = opacity * .74;
       frame.visible = opacity > 0;
       const viewScale = -probe.copy(slot.origin).applyMatrix4(camera.matrixWorldInverse).z *
         2 * Math.tan(radians(camera.fov / 2));
-      probe.copy(slot.origin).project(camera);
-      const originY = (1 - probe.y) * .5;
-      const aspect = width / height;
-      const originX = (probe.x + 1) * .5 * aspect;
-      // 半对角线给未脱落的边角留足余量，整段消散时至少保有顶部安全边距。
-      const halfCard = slot.width / viewScale * .5 * Math.hypot(1, c.PHOTO_ASPECT);
-      const clearance = c.PHOTO_DISSOLVE_TOP_ROOM + halfCard * 1.06 + c.PHOTO_BOB;
-      if (lift >= 1) {
-        probe.copy(mesh.position).project(camera);
-        const wind = readWind?.(clamp((probe.x + 1) * .5)) ?? 0;
-        slot.wind = Math.min(.038, Math.max(-.038, slot.wind + dt * wind * c.PHOTO_WIND_SENSITIVITY));
-        slot.dy += dt * slot.rise;
-      }
-      const rise = Math.max(0, Math.min(originY - clearance, slot.dy + .04 * open));
-      const u = clamp(rise / .64);
-      const [left, bend, tail] = c.WIND_LANE_CURVE;
-      const curve = -left * Math.sin(2 * Math.PI * u) + bend * smooth(u) + tail * u;
-      const spread = mix(c.WIND_LANE_WIDTH[0], c.WIND_LANE_WIDTH[1], u);
-      const laneX = aspect * .50 + curve + spread * slot.lane;
-      const merge = smooth(clamp(rise / .33));
-      const drift = mix(originX, laneX, merge) - originX + open * .009 +
-        (slot.wind + .006 * Math.sin(airtime * 1.8 + slot.phase)) * merge;
-      const bound = Math.min(halfCard, aspect * .14);
-      const dx = mix(originX, Math.max(bound, Math.min(aspect - bound, originX + drift)), open) - originX;
-      const bob = c.PHOTO_BOB * Math.sin(airtime * 3.7 + slot.phase) * clamp(airtime * 2);
-      mesh.position.copy(slot.origin)
-        .addScaledVector(right, dx * viewScale)
-        .addScaledVector(up, (rise + bob) * viewScale);
-      const roll = radians(c.PHOTO_MAX_ROLL) * (.57 * Math.sin(clock * .95 + rise * 2.4) +
-        .28 * Math.sin(airtime * .7 + slot.phase)) + slot.angle * .19;
-      const tiltLimit = radians(c.PHOTO_MAX_TILT);
-      const tilt = tiltLimit * Math.sin(airtime * slot.spin / Math.max(.001, tiltLimit));
-      heading.copy(camera.quaternion).multiply(twist.setFromAxisAngle(zAxis, roll))
-        .multiply(twist.setFromAxisAngle(spinAxis, tilt));
-      mesh.quaternion.copy(slot.rest).slerp(heading, open);
+      // 掀角阶段从零加速，离页时恰好接到纸鹤的初速。
+      const liftRise = c.CRANE_RISE_SPEED_START * slot.liftTime * lift ** 3 * (1 - .5 * lift);
+      const rise = liftRise + craneRiseDistance(airAge, slot.cruise);
+      mesh.position.copy(slot.origin).addScaledVector(up, rise * viewScale);
+      heading.copy(camera.quaternion).multiply(twist.setFromAxisAngle(zAxis, slot.angle));
+      mesh.quaternion.copy(slot.rest).slerp(heading, smooth(lift));
       material.uniforms.peel.value = Math.sin(Math.PI * lift) * .57;
-      material.uniforms.arch.value = 1 - open;
+      material.uniforms.arch.value = 1 - smooth(lift);
 
-      if (c.PHOTO_DISTURBS_TASSELS && lift > .5) {
+      if (airAge >= c.MORPH_START_DELAY) morphPaper(slot, airAge, viewScale, liftRise);
+      if (mesh.visible && c.PHOTO_DISTURBS_TASSELS && lift > .5) {
         probe.copy(mesh.position).project(camera);
         const i = pushes.count * 2;
         pushes.xy[i] = (probe.x + 1) * width * .5;
         pushes.xy[i + 1] = (1 - probe.y) * height * .5;
         pushes.count++;
       }
-      if (originY - rise <= Math.max(slot.targetY, clearance) + .0001) {
-        slot.released = clock;
-        slot.stop.copy(mesh.position);
-        slot.releasePose.copy(mesh.quaternion);
-        slot.brake.copy(mesh.position).sub(previous).multiplyScalar(c.CRANE_HOVER_TIME / (3 * Math.max(dt, .001)));
-      }
     }
-    cranes.update(dt);
     dust.update(dt);
   }
 
@@ -359,9 +305,7 @@ export function makePhotoFlight(T, scene, camera, book) {
       width = w; height = h;
       const layout = mobile ? 'mobile' : 'desktop';
       limit = c.PHOTO_MAX_ONSCREEN[layout];
-      cols = c.DEBRIS_GRID_COLS[layout];
       debrisCount = c.DEBRIS_COUNT[layout];
-      rows = Math.ceil(debrisCount / cols);
       for (let i = slots.length - 1; i >= 0 && count > limit; i--) {
         if (!slots[i].mesh.visible) continue;
         const { crane, craneId } = slots[i];

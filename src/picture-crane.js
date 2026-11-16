@@ -6,6 +6,14 @@ const mix = (a, b, t) => a + (b - a) * t;
 const smooth = t => t * t * (3 - 2 * t);
 const DEG = Math.PI / 180, TAU = 2 * Math.PI;
 
+// 对 smoothstep 速度曲线求积分。相纸和纸鹤共用空中时间，交接时速度连续。
+export function craneRiseDistance(age, cruise) {
+  const ramp = c.CRANE_ACCEL_TIME;
+  const t = clamp(age / ramp);
+  return c.CRANE_RISE_SPEED_START * age + (cruise - c.CRANE_RISE_SPEED_START) *
+    (ramp * t ** 3 * (1 - .5 * t) + Math.max(0, age - ramp));
+}
+
 // 仅描相交折面之间的棱线，纸片外沿留给白纸轮廓本身。
 function makeCreases(T, geometry) {
   const positions = geometry.getAttribute('position');
@@ -96,7 +104,8 @@ export function makeCraneFlight(T, parent, camera, book, dust) {
     const root = template.group.clone();
     const [body, left, rightWing] = root.children;
     const faces = [body, left.children[0], rightWing.children[0]];
-    const slot = { root, left, rightWing, faces, state: 'idle', alpha: 0, previous: new T.Vector3() };
+    const slot = { root, left, rightWing, faces, state: 'idle', alpha: 0,
+      previous: new T.Vector3(), paperPose: new T.Quaternion() };
     for (let i = 0; i < faces.length; i++) {
       faces[i].renderOrder = 3;
       faces[i].onBeforeRender = (_renderer, _scene, _camera, _geometry, material) => {
@@ -168,14 +177,15 @@ export function makeCraneFlight(T, parent, camera, book, dust) {
     for (const face of slot.faces) face.material = material;
   }
 
-  function pose(slot, x, y, scale, pitch, roll, wings) {
+  function pose(slot, scale, pitch, roll, wings, attitudeBlend = 1) {
     probe.set(0, 0, -slot.depth).applyMatrix4(camera.matrixWorld).project(camera);
     const { root } = slot;
-    root.position.set(2 * x - 1, 1 - 2 * y, probe.z).unproject(camera);
+    root.position.set(2 * slot.x - 1, 1 - 2 * slot.y, probe.z).unproject(camera);
     root.quaternion.copy(camera.quaternion)
       .multiply(q.setFromAxisAngle(axisZ, slot.side * pitch))
       .multiply(q.setFromAxisAngle(axisY, slot.side < 0 ? Math.PI : 0))
       .multiply(q.setFromAxisAngle(axisX, roll));
+    root.quaternion.slerp(slot.paperPose, 1 - attitudeBlend);
     root.scale.setScalar(scale);
     // 沿原模型铰链按左右正负号扇动。
     slot.left.rotation.x = -wings * DEG;
@@ -183,7 +193,7 @@ export function makeCraneFlight(T, parent, camera, book, dust) {
     root.updateMatrixWorld(true);
   }
 
-  function begin(world, width) {
+  function begin(world, width, paperPose, airAge, cruise) {
     if (count >= limit) return null;
     let slot;
     for (const candidate of slots) if (candidate.state === 'idle') { slot = candidate; break; }
@@ -205,30 +215,44 @@ export function makeCraneFlight(T, parent, camera, book, dust) {
     slot.length = width * c.CRANE_SIZE_RATIO / slot.viewSize;
     slot.x = slot.startX = x;
     slot.y = slot.startY = y;
-    slot.age = slot.distance = slot.flap = 0;
+    slot.paperPose.copy(paperPose);
+    slot.age = slot.startAge = airAge;
+    slot.launchRise = craneRiseDistance(airAge, cruise);
+    slot.distance = slot.flap = 0;
     slot.pitch = mix(c.CRANE_PITCH_MIN, c.CRANE_PITCH_MAX, Math.abs(Math.tan(angles[lane] * DEG)) /
       Math.max(maxSlope, .001)) * DEG;
     slot.sway = TAU / range(c.CRANE_SWAY_PERIOD);
     slot.roll = TAU / range(c.CRANE_ROLL_PERIOD);
     slot.phase = random() * TAU;
-    slot.speed = mix(...c.CRANE_RISE_SPEED_END, random()) * mix(1 - c.CRANE_RISE_SPEED_VARIATION, 1 + c.CRANE_RISE_SPEED_VARIATION, random());
+    slot.speed = cruise;
     slot.flapHz = mix(c.CRANE_FLAP_HZ_MIN, c.CRANE_FLAP_HZ_MAX, random());
-    const endY = 1 - c.CRANE_FADE_END;
-    slot.fadeY = Math.min(1 - c.CRANE_FADE_START, mix(y, endY, c.CRANE_FADE_START_BLEND));
     slot.trailRate = mix(c.TRAIL_RATE_MIN, c.TRAIL_RATE_MAX, random());
     slot.root.visible = false;
     return slot;
   }
 
-  function fold(slot, progress, alpha) {
+  function move(slot, airAge) {
+    slot.age = airAge;
+    slot.y = slot.startY - (craneRiseDistance(airAge, slot.speed) - slot.launchRise);
+    const routeAge = airAge - slot.startAge;
+    const turn = smooth(clamp(routeAge / c.CRANE_LANE_TURN_TIME));
+    const along = centerX + fanScale * Math.tan(angles[slot.lane] * DEG) * (centerY - slot.y);
+    slot.x = mix(slot.startX, along + c.CRANE_SWAY_AMP * Math.sin(routeAge * slot.sway + slot.phase), turn);
+    slot.rollAngle = c.CRANE_VIEW_ROLL_DEG * DEG +
+      c.CRANE_ROLL_MAX * DEG * Math.sin(routeAge * slot.roll + slot.phase) * turn;
+    slot.pitchAngle = mix(slot.pitch, slot.pitch * .65 + c.CRANE_PITCH_MIN * DEG * .35, turn);
+  }
+
+  function fold(slot, airAge, progress, alpha) {
     if (slot.state !== 'forming') return;
     const open = smooth(clamp((progress - c.CRANE_UNFOLD_START) / (1 - c.CRANE_UNFOLD_START)));
     const firstBeat = clamp((progress - c.CRANE_FORM_FLAP_START) / (1 - c.CRANE_FORM_FLAP_START));
     slot.flap = firstBeat * c.CRANE_DOWNSTROKE_SHARE * c.CRANE_FORM_FLAP_FRACTION;
     const target = mix(c.WING_ANGLE[1], c.WING_ANGLE[0], smooth(slot.flap / c.CRANE_DOWNSTROKE_SHARE));
     const wings = mix(c.CRANE_FOLDED_ANGLE, target, open);
-    pose(slot, slot.x, slot.y, slot.size * mix(c.CRANE_FORM_SCALE, 1, smooth(progress)),
-      mix(0, slot.pitch, smooth(progress)), c.CRANE_VIEW_ROLL_DEG * DEG * open, wings);
+    move(slot, airAge);
+    const blend = smooth(progress);
+    pose(slot, slot.size * mix(c.CRANE_FORM_SCALE, 1, blend), slot.pitchAngle, slot.rollAngle, wings, blend);
     paint(slot, alpha);
     slot.root.visible = alpha > 0;
   }
@@ -310,24 +334,19 @@ export function makeCraneFlight(T, parent, camera, book, dust) {
   }
 
   function fly(slot, dt) {
-    slot.age += dt;
-    const speed = mix(c.CRANE_RISE_SPEED_START, slot.speed, smooth(clamp(slot.age / c.CRANE_RISE_ACCEL_TIME)));
-    const y = slot.y - dt * speed;
-    const endY = 1 - c.CRANE_FADE_END;
-    if (y <= endY) { drop(slot); return; }
-    const turn = smooth(clamp(slot.age / c.CRANE_LANE_TURN_TIME));
-    const along = centerX + fanScale * Math.tan(angles[slot.lane] * DEG) * (centerY - y);
-    const x = mix(slot.startX, along + c.CRANE_SWAY_AMP * Math.sin(slot.age * slot.sway + slot.phase), turn);
-    const fade = smooth(clamp((slot.fadeY - y) / (slot.fadeY - endY)));
-    const alpha = 1 - fade;
-    const vx = (x - slot.x) * width / height, vy = slot.y - y;
-    const distance = Math.hypot(vx, vy);
-    const roll = c.CRANE_ROLL_MAX * DEG * Math.sin(slot.age * slot.roll + slot.phase) * turn;
-    const pitch = mix(slot.pitch, slot.pitch * .65 + c.CRANE_PITCH_MIN * DEG * .35, turn);
+    const x = slot.x, y = slot.y;
     slot.previous.copy(slot.root.position);
-    slot.x = x; slot.y = y; slot.distance += distance;
-    pose(slot, x, y, slot.size * mix(1, c.CRANE_FADE_SCALE, fade),
-      pitch, c.CRANE_VIEW_ROLL_DEG * DEG + roll, wingAngle(slot, dt));
+    move(slot, slot.age + dt);
+    const endY = 1 - c.CRANE_FADE_END;
+    if (slot.y <= endY) { drop(slot); return; }
+    const fadeStart = 1 - c.CRANE_FADE_START;
+    const fade = smooth(clamp((fadeStart - slot.y) / (fadeStart - endY)));
+    const alpha = 1 - fade;
+    const vx = (slot.x - x) * width / height, vy = y - slot.y;
+    const distance = Math.hypot(vx, vy);
+    slot.distance += distance;
+    pose(slot, slot.size * mix(1, c.CRANE_FADE_SCALE, fade),
+      slot.pitchAngle, slot.rollAngle, wingAngle(slot, dt));
     paint(slot, alpha);
     slot.next -= dt;
     while (slot.next <= 0) {

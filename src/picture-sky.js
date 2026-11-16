@@ -107,7 +107,6 @@ export function makeSky(canvas, motion, onImpact, onChime) {
   const fallingTip = {};
   const chimeWeights = Array.from({ length: Math.max(TASSEL_COUNT.desktop, TASSEL_COUNT.mobile) }, Math.random);
   const lights = [];
-  const photoWindSample = { x: 0, lag: album.WIND_SAMPLE_LAG };
   const fallingLights = Array.from({ length: DROP_COUNT_MAX * 2 }, () => ({}));
 
   function fit() {
@@ -414,11 +413,6 @@ export function makeSky(canvas, motion, onImpact, onChime) {
   return {
     fit, update, lights,
     sampleWind(x, lag) { return windSample?.({ x: x * width, lag }, true); },
-    samplePhotoWind(x) {
-      // 与书页和流苏共用每个时间步已有的风场，不推进风场状态。
-      photoWindSample.x = x * width;
-      return (windSample?.(photoWindSample) ?? 0) / rope.gravity;
-    },
     settle() {
       currentIntro = album.INTRO_WIND_DURATION;
       clearFalls();
